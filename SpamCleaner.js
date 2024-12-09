@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/TekMonts.github.io
 // @author       TekMonts
-// @version      1.0
+// @version      1.1
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -233,11 +233,11 @@
                         if (tab.document.readyState === 'complete') {
                             const firstMember = tab.document.querySelector('.listHeap li:first-child a');
                             if (firstMember) {
-                                const latestUserId = firstMember.getAttribute('data-user-id');
+                                userId = firstMember.getAttribute('data-user-id');
                                 clearInterval(checkTabInterval);
                                 tab.close();
-                                console.log(`Newest Member User ID: %c${latestUserId}`, 'background: green; color: white; padding: 2px;');
-                                resolve(latestUserId);
+                                console.log(`Newest Member User ID: %c${userId}`, 'background: green; color: white; padding: 2px;');
+                                resolve(userId);
                             } else {
                                 clearInterval(checkTabInterval);
                                 tab.close();
@@ -684,7 +684,7 @@
 
         button.addEventListener('click', runCleanSpamer);
 
-        setTimeout(runCleanSpamer, 1 * 60 * 1000);
+        setTimeout(runCleanSpamer, 5 * 60 * 1000);
 
         setInterval(runCleanSpamer, 30 * 60 * 1000);
     }
