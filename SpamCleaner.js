@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/TekMonts.github.io
 // @author       TekMonts
-// @version      1.1
+// @version      1.2
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -20,7 +20,7 @@
         "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng",
         "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp",
         "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da",
-        "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino",
+        "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga",
         "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub",
         "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong",
         "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub",
@@ -572,7 +572,7 @@
 
         const button = document.createElement('button');
         button.id = 'spam-cleaner-button';
-        button.textContent = 'Clean Spamer Now';
+        button.textContent = 'Clean Now';
         button.style.cssText = `
     margin-right: 10px; 
     color: white; 
@@ -613,7 +613,7 @@
             button,
             progressTracker,
             updateProgress: function (message, color = 'black') {
-                progressText.textContent = `Spam Cleaner: ${message}`;
+                progressText.textContent = `${message}`;
                 progressText.style.color = color;
             }
         };
@@ -651,6 +651,7 @@
 
                 updateProgress(`Cleaned ${result.spamList.length} spammers`, 'green');
                 console.log('Spam cleaning completed', result);
+                await new Promise(res => setTimeout(res, 2000));
 
                 startCountdown(30 * 60);
 
@@ -670,14 +671,14 @@
             countdownInterval = setInterval(() => {
                 const minutes = Math.floor(remainingTime / 60);
                 const seconds = remainingTime % 60;
-                updateProgress(`Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next run...`);
+                updateProgress(`Last clean: ${spamList.length} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
 
                 remainingTime--;
 
                 if (remainingTime < 0) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
-                    updateProgress('Idle');
+                    updateProgress('Spam Cleaner: Idle');
                 }
             }, 1000);
         }
