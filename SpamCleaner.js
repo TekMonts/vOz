@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/TekMonts.github.io
 // @author       TekMonts
-// @version      1.2
+// @version      1.3
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -622,6 +622,8 @@
     function scheduleCleanAllSpamer() {
         let isRunning = false;
         let countdownInterval = null;
+        let timeoutId = null;
+        let intervalId = null;
 
         const {
             button,
@@ -647,6 +649,11 @@
                     countdownInterval = null;
                 }
 
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+
                 const result = await cleanAllSpamer();
 
                 updateProgress(`Cleaned ${result.spamList.length} spammers`, 'green');
@@ -654,6 +661,7 @@
                 await new Promise(res => setTimeout(res, 2000));
 
                 startCountdown(30 * 60);
+                startScheduler();
 
             } catch (error) {
                 console.error('Error when cleaning spammer:', error);
@@ -671,23 +679,42 @@
             countdownInterval = setInterval(() => {
                 const minutes = Math.floor(remainingTime / 60);
                 const seconds = remainingTime % 60;
-                updateProgress(`Last clean: ${spamList.length} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
+                updateProgress(Last clean: ${spamList.length} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean..., '#6494d3');
 
                 remainingTime--;
 
                 if (remainingTime < 0) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
-                    updateProgress('Spam Cleaner: Idle');
+                    runCleanSpamer();
                 }
             }, 1000);
         }
 
-        button.addEventListener('click', runCleanSpamer);
+        function startScheduler() {
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
+            intervalId = setInterval(runCleanSpamer, 30 * 60 * 1000);
+        }
 
-        setTimeout(runCleanSpamer, 5 * 60 * 1000);
+        button.addEventListener('click', async() => {
+            if (isRunning) {
+                console.log('Clean process is still running. Skipping...');
+                return;
+            }
 
-        setInterval(runCleanSpamer, 30 * 60 * 1000);
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+
+            await runCleanSpamer();
+        });
+
+        timeoutId = setTimeout(runCleanSpamer, 5 * 60 * 1000);
+
+        startScheduler();
     }
 
     function init() {
