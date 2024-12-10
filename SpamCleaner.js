@@ -679,7 +679,7 @@
             countdownInterval = setInterval(() => {
                 const minutes = Math.floor(remainingTime / 60);
                 const seconds = remainingTime % 60;
-                updateProgress(Last clean: ${spamList.length} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean..., '#6494d3');
+                updateProgress(`Last clean: ${spamList.length} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
 
                 remainingTime--;
 
