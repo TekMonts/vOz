@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/TekMonts.github.io
 // @author       TekMonts
-// @version      1.3
+// @version      1.4
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -38,15 +38,15 @@
         "mu88", "nbet", "net8", "nhacai", "nohu", "ok365", "okvip",
         "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88",
         "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei101",
-        "taixiu", "tdtc", "thabet", "thomo", "tk88", "twin68",
-        "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66",
+        "taixiu", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88",
+        "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88",
         "vip77", "vip79", "vip99", "win88", "xo88", "xoso66", "bet",
         "6688", "6868", "club.", "hitclub", "88.", "68.", "79.", "365.", "f168"
     ];
+
     var defaultSpamKeywordsCount = spamKeywords.length;
-    var fullMode = false;
     async function getSpamKeywords() {
-        if (!fullMode || spamKeywords.length >= defaultSpamKeywordsCount) {
+        if (spamKeywords.length > defaultSpamKeywordsCount) {
             return spamKeywords;
         }
         const url = 'https://raw.githubusercontent.com/bigdargon/hostsVN/refs/heads/master/extensions/gambling/hosts-VN';
@@ -76,23 +76,6 @@
         } catch (error) {
             console.error(`Failed to load content from ${url}:`, error);
             return spamKeywords;
-        }
-    }
-
-    async function loadJSON(url) {
-        try {
-            const response = await fetch(url, {
-                cache: 'no-store',
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                credentials: 'include'
-            });
-            return response.ok ? await response.json() : {};
-        } catch (error) {
-            console.error(`Failed to load JSON from ${url}:`, error);
-            return {};
         }
     }
 
@@ -252,227 +235,34 @@
                         resolve(userId);
                     }
                 }, 1000);
-
-                setTimeout(() => {
-                    clearInterval(checkTabInterval);
-                    if (!tab.closed) {
-                        tab.close();
-                    }
-                    console.warn('Timeout while loading new tab');
-                    resolve(userId);
-                }, 10000);
             }
         });
     }
 
-    async function getSpamPrefix(id = null) {
-        const prefixes = [];
-
-        if (!id) {
-            try {
-                id = await findNewestMember();
-                id = parseInt(id);
-            } catch (error) {
-                console.error('Failed to find newest member:', error);
-                return prefixes;
-            }
+    function calSpamCount(spamCount = -1) {
+        if (spamCount > -1) {
+            localStorage.setItem('latestCount', spamCount);
         }
-
-        if (isNaN(id) || id <= 0) {
-            console.error('Invalid user ID');
-            return prefixes;
-        }
-        spamKeywords = await getSpamKeywords();
-        for (let currentId = Math.max(1, id - 100); currentId <= id; currentId++) {
-            const url = `https://voz.vn/u/${currentId}/about?_xfResponseType=json&_xfWithData=1`;
-            try {
-                const response = await fetch(url, {
-                    method: 'GET'
-                });
-                if (!response.ok) {
-                    console.error(`Failed to fetch data for ID: ${currentId}`);
-                    continue;
-                }
-                const data = await response.json();
-                if (data.status === "ok") {
-                    const content = data.html?.content?.toLowerCase() || "";
-                    const title = data.html?.title || "";
-                    if (spamKeywords.some(keyword => content.includes(keyword))) {
-                        const shortPrefix = title.substring(0, 4);
-                        const longPrefix = title.substring(0, 5);
-
-                        if (!prefixes.some(p => p.prefix === shortPrefix)) {
-                            prefixes.push({
-                                prefix: shortPrefix,
-                                expand: longPrefix,
-                                keyword: spamKeywords.find(keyword => content.includes(keyword)),
-                                link: `${title}: https://voz.vn/u/${currentId}/#about`
-                            });
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error(`Error processing ID: ${currentId}`, error);
-            }
-        }
-        return prefixes;
+        return localStorage.getItem('latestCount') || 0;
     }
 
-    async function convertKeywordsToPrefixes(keywords) {
-        spamKeywords = await getSpamKeywords();
-        return keywords.map(keyword => ({
-                prefix: keyword.substring(0, 5),
-                expand: keyword,
-                keyword: keyword,
-                link: ''
-            }));
-    }
-
-    async function cleanSpamerByUserPrefix(prefixesOrKeywords) {
-        const prefixes = Array.isArray(prefixesOrKeywords[0]) || typeof prefixesOrKeywords[0] === 'string'
-             ? await convertKeywordsToPrefixes(prefixesOrKeywords)
-             : prefixesOrKeywords;
-
-        spamList = [];
-        spamCount = 0;
-
-        const prefixResults = [];
-        function extractUserInfo(iconHtml) {
-            const userIdMatch = iconHtml.match(/data-user-id="(\d+)"/);
-            const usernameMatch = iconHtml.match(/title="([^"]+)"/);
-
-            if (userIdMatch && usernameMatch) {
-                return {
-                    userId: userIdMatch[1],
-                    username: usernameMatch[1]
-                };
-            }
-            return null;
-        }
-
-        for (const prefixObj of prefixes) {
-            let processedPrefixes = [prefixObj.prefix, prefixObj.expand];
-
-            for (const prefix of processedPrefixes) {
-                let processingComplete = false;
-                let processedUsers = 0;
-                let ignoredUsers = 0;
-                let spammedUsers = 0;
-                let processedUserIds = new Set();
-                while (!processingComplete) {
-                    try {
-                        const url = `https://voz.vn/index.php?members/find&_xfResponseType=json&q=${prefix}`;
-                        console.log(`Searching: %c${prefix}%c, Processed: %c${processedUsers}`, 'background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;');
-
-                        const json = await loadJSON(url);
-
-                        if (!json.results || json.results.length === 0) {
-                            processingComplete = true;
-                            break;
-                        }
-
-                        console.log(`Found: %c${json.results.length}%c user: %c${json.results.map(result => result?.id).filter(id => id).join(", ")}`, 'background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;');
-
-                        let processedThisIteration = 0;
-
-                        for (const result of json.results) {
-                            if (result && result.iconHtml) {
-                                const userInfo = extractUserInfo(result.iconHtml);
-                                if (userInfo && !processedUserIds.has(userInfo.userId)) {
-                                    processedUserIds.add(userInfo.userId);
-
-                                    try {
-                                        const response = await processSpamUser(userInfo.userId, userInfo.username);
-                                        if (response.status === 'ok') {
-                                            spammedUsers++;
-                                        } else {
-                                            ignoredUsers++;
-                                        }
-                                        processedUsers++;
-                                        processedThisIteration++;
-                                        await new Promise(resolve => setTimeout(resolve, 100));
-                                    } catch (error) {
-                                        console.error(`Failed to process user ${userInfo.username}:`, error);
-                                        ignoredUsers++;
-                                    }
-                                }
-                            }
-                        }
-
-                        if (processedThisIteration === 0 ||
-                            (ignoredUsers > processedUsers / 2 && processedUsers > 10)) {
-                            processingComplete = true;
-                        }
-                    } catch (error) {
-                        console.error(`Error searching for ${prefix}:`, error);
-                        processingComplete = true;
-                    }
-                }
-
-                prefixResults.push({
-                    prefix: prefix,
-                    processedUsers: processedUsers,
-                    spammedUsers: spammedUsers,
-                    ignoredUsers: ignoredUsers
-                });
-            }
-        }
-
-        console.log(`Finished cleaning %c${spamCount}%c spammers!`, 'background: green; color: white; padding: 2px;', '');
-        const finalResult = {
-            spamList: spamList,
-            banFails: banFails,
-            prefixResults: prefixResults
-        };
-        console.log(
-            spamList.map(item => {
-                const [username, link] = item.split(": ");
-                return `%c${username}%c: ${link}`;
-            }).join('\n'), ...spamList.flatMap(() => ["color: red; font-weight: bold; padding: 1px;", "color: inherit;"]));
-        console.log("Spam prefixes:", prefixes);
-        console.log("Result:", finalResult);
-        return finalResult;
-    }
-
-    var latestID = 0;
-
-    async function cleanAllSpamer(fromID = 0, toID = 0) {
+    async function cleanAllSpamer() {
         spamList = [];
         spamCount = 0;
         banFails = [];
+        var fromID = 0, toID = 0;
+		
         try {
             let maxAllow = await findNewestMember();
             const storedRange = localStorage.getItem('latestRange');
             let latestRange = storedRange ? JSON.parse(storedRange) : null;
-            if (fromID !== 0 && toID !== 0) {
-                const newRange = {
-                    fromID,
-                    toID,
-                    latestID: toID
-                };
-                localStorage.setItem('latestRange', JSON.stringify(newRange));
-            }
 
-            if (fromID === 0 && toID === 0) {
-                if (latestRange) {
-                    fromID = latestRange.latestID;
-                    toID = Math.min(latestRange.latestID + 1000, maxAllow);
-                } else {
-                    fromID = 1;
-                    toID = maxAllow;
-                }
-            }
-
-            if (fromID !== 0 && toID === 0) {
-                if (latestRange) {
-                    if (fromID < latestRange.latestID) {
-                        toID = latestRange.latestID;
-                    } else {
-                        toID = Math.min(fromID + 1000, maxAllow);
-                    }
-                } else {
-                    toID = Math.min(fromID + 1000, maxAllow);
-                }
+            if (latestRange) {
+                fromID = latestRange.latestID;
+                toID = Math.min(latestRange.latestID + 1000, maxAllow);
+            } else {
+                fromID = maxAllow - 1000;
+                toID = maxAllow;
             }
 
             toID = Math.min(toID, maxAllow);
@@ -595,7 +385,7 @@
 `;
 
         const progressText = document.createElement('span');
-        progressText.textContent = 'Spam Cleaner: Idle';
+        progressText.textContent = `Spam Cleaner: Idle. Last clean: ${calSpamCount()} spammers.`;
         progressTracker.appendChild(progressText);
 
         container.appendChild(button);
@@ -642,7 +432,7 @@
                 isRunning = true;
                 button.disabled = true;
                 button.style.backgroundColor = '#6c757d';
-                updateProgress('Running...', 'blue');
+                updateProgress('Spam Cleaner: Running...', 'blue');
 
                 if (countdownInterval) {
                     clearInterval(countdownInterval);
@@ -656,7 +446,7 @@
 
                 const result = await cleanAllSpamer();
 
-                updateProgress(`Cleaned ${result.spamList.length} spammers`, 'green');
+                updateProgress(`Cleaned ${spamCount} spammers`, 'green');
                 console.log('Spam cleaning completed', result);
                 await new Promise(res => setTimeout(res, 2000));
 
@@ -667,6 +457,7 @@
                 console.error('Error when cleaning spammer:', error);
                 updateProgress(`Error: ${error}`, 'red');
             } finally {
+                calSpamCount(spamCount);
                 isRunning = false;
                 button.disabled = false;
                 button.style.backgroundColor = '#007bff';
@@ -679,7 +470,7 @@
             countdownInterval = setInterval(() => {
                 const minutes = Math.floor(remainingTime / 60);
                 const seconds = remainingTime % 60;
-                updateProgress(`Last clean: ${spamList.length} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
+                updateProgress(`Last clean: ${spamCount} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
 
                 remainingTime--;
 
