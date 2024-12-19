@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/TekMonts.github.io
 // @author       TekMonts
-// @version      1.4
+// @version      1.5
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -11,39 +11,11 @@
 
 (function () {
     'use strict';
-
     var ignoreList = [];
     var spamList = [];
     var banFails = [];
     var spamCount = 0;
-    var spamKeywords = ["giải trí", "giai tri", "sòng bài", "song bai",
-        "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng",
-        "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp",
-        "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da",
-        "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga",
-        "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub",
-        "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong",
-        "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub",
-        "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet",
-        "23win", "33win", "388bet", "55win", "777king", "77bet", "77win",
-        "789club", "789win", "79king", "888b", "88bet", "88clb", "8day",
-        "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok",
-        "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88",
-        "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88",
-        "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88",
-        "five88", "for88", "fun88", "gamebai", "gamedoithuong", "gk88",
-        "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet",
-        "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88",
-        "mancl", "may88", "mb66", "mibet", "miso88", "mksport",
-        "mu88", "nbet", "net8", "nhacai", "nohu", "ok365", "okvip",
-        "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88",
-        "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei101",
-        "taixiu", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88",
-        "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88",
-        "vip77", "vip79", "vip99", "win88", "xo88", "xoso66", "bet",
-        "6688", "6868", "club.", "hitclub", "88.", "68.", "79.", "365.", "f168"
-    ];
-
+    var spamKeywords = ["giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề"];
     var defaultSpamKeywordsCount = spamKeywords.length;
     async function getSpamKeywords() {
         if (spamKeywords.length > defaultSpamKeywordsCount) {
@@ -58,7 +30,6 @@
             const text = await response.text();
             const lines = text.split('\n');
             const uniqueHosts = new Set(spamKeywords);
-
             for (let line of lines) {
                 line = line.trim();
                 if (line.startsWith('0.0.0.0')) {
@@ -78,21 +49,17 @@
             return spamKeywords;
         }
     }
-
-    async function processSpamUser(userId, username, directClean = false) {
+    async function processSpamUser(userId, username, inputKW) {
         if (ignoreList.includes(userId)) {
             console.log(`User %c${username}%c is ignored.`, 'background: green; color: white; padding: 2px;', '');
             return {};
         }
-
         const baseUrl = 'https://voz.vn';
         const endpoint = `/spam-cleaner/${userId}`;
-
         const xfToken = document.querySelector('input[name="_xfToken"]').value;
-
         const userUrl = `https://voz.vn/u/${userId}/about?_xfResponseType=json&_xfWithData=1`;
-
-        let isSpam = directClean;
+        let finalKW = inputKW + '';
+        let isSpam = !!finalKW?.trim();
         if (!isSpam) {
             await new Promise(resolve => setTimeout(resolve, 100));
             try {
@@ -102,16 +69,11 @@
                 if (response.ok) {
                     const data = await response.json();
                     const content = data.html?.content?.toLowerCase() || "";
-
                     spamKeywords.some(keyword => {
                         if (content.includes(keyword)) {
                             isSpam = true;
-                            console.log(
-`User %c${username}%c detected as spammer based on keyword %c${keyword}%c.`,
-                                'color: red; font-weight: bold; padding: 2px;',
-                                '',
-                                'color: red; font-weight: bold; padding: 2px;',
-                                '');
+                            finalKW = keyword;
+                            console.log(`User %c${username}%c detected as spammer based on keyword %c${keyword}%c.`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
                             return true;
                         }
                         return false;
@@ -136,7 +98,6 @@
         formData.append('_xfResponseType', 'json');
         formData.append('_xfWithData', '1');
         formData.append('_xfRequestUri', endpoint);
-
         try {
             const response = await fetch(`${baseUrl}${endpoint}`, {
                 method: 'POST',
@@ -148,16 +109,14 @@
                 credentials: 'include',
                 body: formData
             });
-
             const data = await response.json();
-
             if (data.status === 'ok') {
                 spamCount++;
-                spamList.push(`${username}: https://voz.vn/u/${userId}/#about`);
+                spamList.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
                 console.log(`%c${username}: ${data.message}`, 'background: blue; color: white; padding: 2px;');
             } else {
                 ignoreList.push(userId);
-                banFails.push(`${username}: https://voz.vn/u/${userId}/#about`);
+                banFails.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
                 console.log(`%c${username}: ${data.errors ? data.errors[0] : 'Unknown error'}`, 'background: yellow; color: black; padding: 2px');
             }
             return data;
@@ -166,26 +125,16 @@
             throw error;
         }
     }
-
-    async function findNewestMember() {
+    async function findNewestMember(autorun) {
         return new Promise((resolve, reject) => {
             let searchForNewest = false;
             let userId = 0;
-
-            const firstMemberElement =
-                document.querySelector('.listHeap li:first-child a') ||
-                Array.from(document.querySelectorAll('dl.pairs.pairs--justified dt'))
-                .find(dt => dt.textContent.trim() === 'Latest member')
-                ?.closest('dl')
-                .querySelector('dd a.username');
-
+            const firstMemberElement = document.querySelector('.listHeap li:first-child a') || Array.from(document.querySelectorAll('dl.pairs.pairs--justified dt')).find(dt => dt.textContent.trim() === 'Latest member')?.closest('dl').querySelector('dd a.username');
             const storedRange = localStorage.getItem('latestRange');
             const latestRange = storedRange ? JSON.parse(storedRange) : null;
-
             if (firstMemberElement) {
                 userId = firstMemberElement.getAttribute('data-user-id');
                 console.log(`Newest Member User ID in this page: %c${userId}`, 'background: green; color: white; padding: 2px;');
-
                 if (latestRange && parseInt(userId) <= parseInt(latestRange.latestID)) {
                     searchForNewest = true;
                 } else {
@@ -195,17 +144,20 @@
             } else {
                 searchForNewest = true;
             }
-
+            const userPage = 'https://voz.vn/u/';
+            if (firstMemberElement && autorun) {
+                console.log('Auto run triggred!');
+                location.replace(userPage);
+                return;
+            }
             if (searchForNewest) {
                 userId = latestRange.latestID;
-                const userPage = 'https://voz.vn/u/';
                 const tab = window.open(userPage, '_blank');
                 if (!tab) {
                     console.warn('Failed to open tab');
                     location.replace(userPage);
                     return;
                 }
-
                 const checkTabInterval = setInterval(() => {
                     try {
                         if (tab.closed) {
@@ -238,35 +190,30 @@
             }
         });
     }
-
     function calSpamCount(spamCount = -1) {
         if (spamCount > -1) {
             localStorage.setItem('latestCount', spamCount);
         }
         return localStorage.getItem('latestCount') || 0;
     }
-
-    async function cleanAllSpamer() {
+    async function cleanAllSpamer(autorun) {
         spamList = [];
         spamCount = 0;
         banFails = [];
-        var fromID = 0, toID = 0;
-		
+        var fromID = 0,
+        toID = 0;
         try {
-            let maxAllow = await findNewestMember();
+            let maxAllow = await findNewestMember(autorun);
             const storedRange = localStorage.getItem('latestRange');
             let latestRange = storedRange ? JSON.parse(storedRange) : null;
-
             if (latestRange) {
-                fromID = latestRange.latestID;
+                fromID = latestRange.latestID - 10;
                 toID = Math.min(latestRange.latestID + 1000, maxAllow);
             } else {
                 fromID = maxAllow - 1000;
                 toID = maxAllow;
             }
-
             toID = Math.min(toID, maxAllow);
-
             const newRange = {
                 fromID,
                 toID,
@@ -280,12 +227,7 @@
             };
         }
         spamKeywords = await getSpamKeywords();
-        console.log(
-`Process to clean all spamer has ID from %c${fromID}%c to %c${toID}%c.`,
-            'background: green; color: white; padding: 2px;',
-            '',
-            'background: green; color: white; padding: 2px;',
-            '');
+        console.log(`Process to clean all spamer has ID from %c${fromID}%c to %c${toID}%c.`, 'background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;', '');
         for (let currentId = fromID; currentId <= toID; currentId++) {
             const url = `https://voz.vn/u/${currentId}/about?_xfResponseType=json&_xfWithData=1`;
             try {
@@ -303,13 +245,8 @@
                     var title = data.html?.title?.toLowerCase() || "";
                     var matchedKeyword = spamKeywords.find(keyword => content.includes(keyword) || title.includes(keyword));
                     if (matchedKeyword) {
-                        console.log(
-`User %c${title}%c detected as spammer based on keyword %c${matchedKeyword}%c.`,
-                            'color: red; font-weight: bold; padding: 2px;',
-                            '',
-                            'color: red; font-weight: bold; padding: 2px;',
-                            '');
-                        await processSpamUser(currentId, title, true);
+                        console.log(`User %c${title}%c detected as spammer based on keyword %c${matchedKeyword}%c.`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
+                        await processSpamUser(currentId, title, matchedKeyword);
                     }
                 }
             } catch (error) {
@@ -321,84 +258,83 @@
             spamList: spamList,
             banFails: banFails
         };
-        console.log(
-            spamList.map(item => {
+        console.log(spamList.map(item => {
                 const [username, link] = item.split(": ");
                 return `%c${username}%c: ${link}`;
             }).join('\n'), ...spamList.flatMap(() => ["color: red; font-weight: bold; padding: 1px;", "color: inherit;"]));
         return finalResult;
     }
-
     function addSpamCleanerToNavigation() {
         const navList = document.querySelector('.p-nav-list.js-offCanvasNavSource');
         const footerList = document.querySelector("#footer > div > div.p-footer-row > div.p-footer-row-main > ul");
         const isUserUsingMobile = () => {
-
             let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
             if (!isMobile) {
                 let screenWidth = window.screen.width;
                 let screenHeight = window.screen.height;
                 isMobile = (screenWidth <= 800 || screenHeight <= 600);
             }
-
             if (!isMobile) {
                 isMobile = (('ontouchstart' in window) || navigator.userAgentData.mobile);
             }
-
             return isMobile;
         }
-
         if (!navList && !footerList)
             return;
-
         const navItem = document.createElement('li');
         navItem.className = 'p-navEl';
-
         const container = document.createElement('div');
         container.className = 'p-navEl-link vn-quick-link';
         container.style.display = 'inline-flex';
         container.style.alignItems = 'left';
-
         const button = document.createElement('button');
         button.id = 'spam-cleaner-button';
         button.textContent = 'Clean Now';
         button.style.cssText = `
-    margin-right: 10px; 
-    color: white; 
-    border: none; 
-    padding: 5px 10px; 
-    border-radius: 5px; 
-    background-color: #007bff; 
-    font-size: 12px;
-`;
 
+    margin-right: 10px; 
+
+    color: white; 
+
+    border: none; 
+
+    padding: 5px 10px; 
+
+    border-radius: 5px; 
+
+    background-color: #007bff; 
+
+    font-size: 12px;
+
+`;
         const progressTracker = document.createElement('div');
         progressTracker.id = 'voz-spam-cleaner-tracker';
         progressTracker.style.cssText = `
-    display: inline-flex; 
-    align-items: center; 
-    background-color: #f0f0f0; 
-    padding: 5px 10px; 
-    border-radius: 5px; 
-    font-size: 12px;
-`;
 
+    display: inline-flex; 
+
+    align-items: center; 
+
+    background-color: #f0f0f0; 
+
+    padding: 5px 10px; 
+
+    border-radius: 5px; 
+
+    font-size: 12px;
+
+`;
         const progressText = document.createElement('span');
         progressText.textContent = `Spam Cleaner: Idle. Last clean: ${calSpamCount()} spammers.`;
         progressTracker.appendChild(progressText);
-
         container.appendChild(button);
         container.appendChild(progressTracker);
-
         navItem.appendChild(container);
-
         if (isUserUsingMobile() && footerList) {
             footerList.appendChild(navItem);
         } else if (navList) {
             navList.appendChild(navItem);
         }
-
         return {
             button,
             progressTracker,
@@ -408,51 +344,41 @@
             }
         };
     }
-
     function scheduleCleanAllSpamer() {
         let isRunning = false;
         let countdownInterval = null;
         let timeoutId = null;
         let intervalId = null;
-
         const {
             button,
             progressTracker,
             updateProgress
         } = addSpamCleanerToNavigation();
-
-        async function runCleanSpamer() {
+        async function runCleanSpamer(autorun = true) {
             console.clear();
             if (isRunning) {
                 console.log('Clean process is still running. Skipping...');
                 return;
             }
-
             try {
                 isRunning = true;
                 button.disabled = true;
                 button.style.backgroundColor = '#6c757d';
                 updateProgress('Spam Cleaner: Running...', 'blue');
-
                 if (countdownInterval) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
                 }
-
                 if (timeoutId) {
                     clearTimeout(timeoutId);
                     timeoutId = null;
                 }
-
-                const result = await cleanAllSpamer();
-
+                const result = await cleanAllSpamer(autorun);
                 updateProgress(`Cleaned ${spamCount} spammers`, 'green');
                 console.log('Spam cleaning completed', result);
                 await new Promise(res => setTimeout(res, 2000));
-
-                startCountdown(30 * 60);
+                startCountdown(10 * 60);
                 startScheduler();
-
             } catch (error) {
                 console.error('Error when cleaning spammer:', error);
                 updateProgress(`Error: ${error}`, 'red');
@@ -463,17 +389,13 @@
                 button.style.backgroundColor = '#007bff';
             }
         }
-
         function startCountdown(duration) {
             let remainingTime = duration;
-
             countdownInterval = setInterval(() => {
                 const minutes = Math.floor(remainingTime / 60);
                 const seconds = remainingTime % 60;
                 updateProgress(`Last clean: ${spamCount} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
-
                 remainingTime--;
-
                 if (remainingTime < 0) {
                     clearInterval(countdownInterval);
                     countdownInterval = null;
@@ -481,39 +403,31 @@
                 }
             }, 1000);
         }
-
         function startScheduler() {
             if (intervalId) {
                 clearInterval(intervalId);
             }
-            intervalId = setInterval(runCleanSpamer, 30 * 60 * 1000);
+            intervalId = setInterval(runCleanSpamer, 10 * 60 * 1000);
         }
-
         button.addEventListener('click', async() => {
             if (isRunning) {
                 console.log('Clean process is still running. Skipping...');
                 return;
             }
-
             if (timeoutId) {
                 clearTimeout(timeoutId);
                 timeoutId = null;
             }
-
-            await runCleanSpamer();
+            await runCleanSpamer(false);
         });
-
-        timeoutId = setTimeout(runCleanSpamer, 5 * 60 * 1000);
-
+        timeoutId = setTimeout(() => runCleanSpamer(false), 5 * 60 * 1000);
         startScheduler();
     }
-
     function init() {
         if (window.location.hostname === 'voz.vn') {
             scheduleCleanAllSpamer();
         }
     }
-
     if (document.readyState === 'complete') {
         init();
     } else {
