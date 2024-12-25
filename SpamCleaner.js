@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      1.7
+// @version      1.8
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -466,7 +466,13 @@
             }
 
             if (autorun && !isUserInactive()) {
-                console.log(`User active recently (${(Date.now() - state.lastActiveTime) / 1000}s ago). Skipping clean.`);
+                const activeTimeAgo = Math.round((Date.now() - state.lastActiveTime) / 1000);
+                const remainingTime = Math.round((INTERVALS.CLEAN_INTERVAL / 1000) - activeTimeAgo);
+                console.log(`User active recently (${activeTimeAgo}s ago). Skipping clean.`);
+				updateProgress(`User active recently (${activeTimeAgo}s ago). Skipping clean...`, 'green');
+				await new Promise(res => setTimeout(res, 2000));
+				clearAllTimers();
+                startCountdown(remainingTime - 2);
                 return;
             }
 
