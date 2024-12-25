@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      1.6
+// @version      1.7
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -233,14 +233,20 @@
             }
 
             const content = data.html.content.toLowerCase();
-            const labelTitleRegex = /<h3 class="contentRow-title">\s*<a[^>]*>[^<]*?(?:http:\/\/|https:\/\/)[^<\s]*/i;
+            const titleRegex = /<h3 class="contentRow-title">\s*<a[^>]*>([\s\S]*?)<\/a>/gi;
+            const titles = [...content.matchAll(titleRegex)];
 
-            if (labelTitleRegex.test(content)) {
-                console.log(
-`User %c${username}%c detected as spammer based on recent content containing HTTP in title.`,
-                    'color: red; font-weight: bold; padding: 2px;',
-                    '');
-                return true;
+            for (const title of titles) {
+                const titleText = title[1].replace(/<[^>]+>/g, '').trim();
+                if (/(https?:\/\/[^\s<]+)/i.test(titleText)) {
+                    console.log(
+`User %c${username}%c detected as spammer. Title containing URL: %c${titleText}%c`,
+                        'color: red; font-weight: bold; padding: 2px;',
+                        '',
+                        'color: red; font-weight: bold; padding: 2px;',
+                        '');
+                    return true;
+                }
             }
 
             return false;
