@@ -241,7 +241,7 @@
                 const titleText = title[1].replace(/<[^>]+>/g, '').trim();
                 if (/(https?:\/\/[^\s<]+)/i.test(titleText) || titleText.includes('free')
                      || titleText.includes('review') || titleText.includes('good')
-                     || titleText.includes('what') ||  || titleText.includes('is')
+                     || titleText.includes('what') || titleText.includes('is')
                      || titleText.trim().split(' ').some(word => word.length > 7)) {
                     console.log(
 `User %c${username}%c detected as spammer. Title containing URL/keyword: %c${titleText}%c`,
