@@ -2,18 +2,18 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.0
+// @version      2.1
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // ==/UserScript==
-
 (function () {
     'use strict';
     var ignoreList = [];
     var spamList = [];
     var banFails = [];
+    var reviewBan = [];
     var spamCount = 0;
     const websiteRegex = /<dt>Website<\/dt>\s*<dd>\s*<a[^>]*>([^<]+)<\/a>/i;
     var spamKeywords = ["moscow", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france"];
@@ -216,48 +216,37 @@
     }
     async function checkRecentContent(userId, username) {
         const recentUrl = `https://voz.vn/u/${userId}/recent-content?_xfResponseType=json`;
-
         try {
             const response = await fetch(recentUrl, {
                 method: 'GET'
             });
-
             if (!response.ok) {
                 console.error(`Error fetching recent content for ${username}`);
                 return false;
             }
-
             const data = await response.json();
-
             if (data.html.content.includes("has not posted any content recently")) {
                 return false;
             }
-
             const content = data.html.content.toLowerCase();
             const titleRegex = /<h3 class="contentRow-title">\s*<a[^>]*>([\s\S]*?)<\/a>/gi;
             const titles = [...content.matchAll(titleRegex)];
-
             for (const title of titles) {
-                const titleText = title[1]
-                    .replace(/<[^>]+>/g, '')
-                    .replace(/&nbsp;/g, ' ')
-                    .replace(/&[a-z]+;/gi, '')
-                    .trim();
-
-                if (/(https?:\/\/[^\s<]+)/i.test(titleText) || titleText.includes('free')
-                     || titleText.includes('review') || titleText.includes('good')
-                     || titleText.includes('what') || titleText.includes('is')
-                     || titleText.split(/\s+/).some(word => word.length > 7)) {
-                    console.log(
-`User %c${username}%c detected as spammer. Title containing URL/keyword: %c${titleText}%c`,
-                        'color: red; font-weight: bold; padding: 2px;',
-                        '',
-                        'color: red; font-weight: bold; padding: 2px;',
-                        '');
+                const titleText = title[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/gi, '').trim();
+                if (/\bhttps?:\/\/[^\s<]+/i.test(titleText)) {
+                    console.log(`User %c${username}%c detected as spammer. Title containing URL: %c${titleText}%c`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
+                    return true;
+                }
+                if (/:[a-z_]+:/.test(titleText) || /\b\d+-\w+\b/.test(titleText) || /\b[a-z]+(\/[a-z]+)+\b/i.test(titleText) || /(\w+\|)+\w+/i.test(titleText)) {
+                    reviewBan.push(`${username} - ${titleText}: https://voz.vn/u/${userId}/#recent-content`);
+                    console.log(`User %c${username}%c: https://voz.vn/u/${userId}/#recent-content\nTitle: %c${titleText}%c\nConsider to ban this user.`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: yellow; font-weight: bold; padding: 2px;', 'color: red; font-weight: bold; padding: 2px;');
+                    continue;
+                }
+                if (titleText.includes('free') || titleText.includes('review') || titleText.includes('good') || titleText.includes('what') || titleText.includes('is') || titleText.includes('how') || titleText.split(/\s+/).some(word => word.length > 7)) {
+                    console.log(`User %c${username}%c detected as spammer. Title containing keyword: %c${titleText}%c`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
                     return true;
                 }
             }
-
             return false;
         } catch (error) {
             console.error(`Error checking recent content for ${username}:`, error);
@@ -268,6 +257,7 @@
         spamList = [];
         spamCount = 0;
         banFails = [];
+        reviewBan = [];
         var fromID = 0,
         toID = 0;
         try {
@@ -328,30 +318,28 @@
             }
         }
         console.log(`Finished cleaning %c${spamCount}%c spammers!`, 'background: green; color: white; padding: 2px;', '');
-
         const sortedSpamList = spamList.sort((a, b) => {
             const aIncludesSupport = a.includes("recent_content") ? 1 : 0;
             const bIncludesSupport = b.includes("recent_content") ? 1 : 0;
             return aIncludesSupport - bIncludesSupport;
         });
-
-        console.log(
-            sortedSpamList.map(item => {
+        console.log(sortedSpamList.map(item => {
                 const [username, link] = item.split(": ");
                 return `%c${username}%c: ${link}`;
-            }).join('\n'),
-            ...sortedSpamList.flatMap(() => ["color: red; font-weight: bold; padding: 1px;", "color: inherit;"]));
-
+            }).join('\n'), ...sortedSpamList.flatMap(() => ["color: red; font-weight: bold; padding: 1px;", "color: inherit;"]));
+        console.log(reviewBan.map(item => {
+                const [username, link] = item.split(": ");
+                return `%c${username}%c: ${link}`;
+            }).join('\n'), ...reviewBan.flatMap(() => ["color: yellow; font-weight: bold; padding: 1px;", "color: inherit;"]));
         const matches = sortedSpamList.filter(item => item.includes("recent_content"));
-
-        if (matches.length > 0) {
-            alert(`There are ${matches.length} user(s) that need to review the ban.`);
+        if ((matches.length + reviewBan.length) > 0) {
+            alert(`There are ${matches.length + reviewBan.length} user(s) that need to review ban.`);
         }
         const finalResult = {
             spamList: sortedSpamList,
-            banFails: banFails
+            banFails: banFails,
+            reviewBan: reviewBan
         };
-
         return finalResult;
     }
     function addSpamCleanerToNavigation() {
@@ -430,45 +418,32 @@
             intervalId: null,
             lastActiveTime: Date.now()
         };
-
         const INTERVALS = {
             INACTIVITY_CHECK: 5 * 60 * 1000,
             CLEAN_INTERVAL: 10 * 60 * 1000,
             INITIAL_DELAY: 5 * 60 * 1000
         };
-
         const {
             button,
             progressTracker,
             updateProgress
         } = addSpamCleanerToNavigation();
-
         function updateLastActiveTime() {
             state.lastActiveTime = Date.now();
         }
-
         function setupActivityListeners() {
             const events = ['mousemove', 'keydown', 'click'];
-
             if (isUserUsingMobile()) {
-                events.push(
-                    'touchstart',
-                    'touchmove',
-                    'touchend',
-                    'scroll',
-                    'orientationchange');
+                events.push('touchstart', 'touchmove', 'touchend', 'scroll', 'orientationchange');
             }
-
             events.forEach(event => {
                 document.addEventListener(event, updateLastActiveTime);
             });
         }
-
         function isUserInactive() {
             const inactiveDuration = Date.now() - state.lastActiveTime;
             return inactiveDuration >= INTERVALS.INACTIVITY_CHECK;
         }
-
         function clearAllTimers() {
             if (state.countdownInterval)
                 clearInterval(state.countdownInterval);
@@ -476,20 +451,16 @@
                 clearTimeout(state.timeoutId);
             if (state.intervalId)
                 clearInterval(state.intervalId);
-
             state.countdownInterval = null;
             state.timeoutId = null;
             state.intervalId = null;
         }
-
         async function runCleanSpamer(autorun = true) {
             console.clear();
-
             if (state.isRunning) {
                 console.log('Clean process is still running. Skipping...');
                 return;
             }
-
             if (autorun && !isUserInactive()) {
                 const activeTimeAgo = Math.round((Date.now() - state.lastActiveTime) / 1000);
                 const remainingTime = Math.round((INTERVALS.CLEAN_INTERVAL / 1000) - activeTimeAgo);
@@ -500,16 +471,13 @@
                 startCountdown(remainingTime - 2);
                 return;
             }
-
             try {
                 state.isRunning = true;
                 updateUIForCleaning(true);
                 clearAllTimers();
-
                 const result = await cleanAllSpamer(autorun);
                 updateProgress(`Cleaned ${spamCount} spammers`, 'green');
                 console.log('Spam cleaning completed', result);
-
                 await new Promise(res => setTimeout(res, 2000));
                 startCountdown(INTERVALS.CLEAN_INTERVAL / 1000);
             } catch (error) {
@@ -521,7 +489,6 @@
                 state.isRunning = false;
             }
         }
-
         function updateUIForCleaning(isCleaning) {
             button.disabled = isCleaning;
             button.style.backgroundColor = isCleaning ? '#6c757d' : '#007bff';
@@ -529,18 +496,12 @@
                 updateProgress('Spam Cleaner: Running...', 'blue');
             }
         }
-
         function startCountdown(duration) {
             let remainingTime = duration;
-
             state.countdownInterval = setInterval(() => {
                 const minutes = Math.floor(remainingTime / 60);
                 const seconds = remainingTime % 60;
-
-                updateProgress(
-`Last clean: ${spamCount} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`,
-                    '#6494d3');
-
+                updateProgress(`Last clean: ${spamCount} spammers. Wait ${minutes}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
                 if (--remainingTime < 0) {
                     clearInterval(state.countdownInterval);
                     state.countdownInterval = null;
@@ -548,29 +509,23 @@
                 }
             }, 1000);
         }
-
         function startScheduler() {
             clearAllTimers();
             state.intervalId = setInterval(() => runCleanSpamer(), INTERVALS.CLEAN_INTERVAL);
         }
-
         function initialize() {
             setupActivityListeners();
-
             button.addEventListener('click', async() => {
                 if (state.isRunning) {
                     console.log('Clean process is still running. Skipping...');
                     return;
                 }
-
                 clearAllTimers();
                 await runCleanSpamer(false);
             });
-
             state.timeoutId = setTimeout(() => runCleanSpamer(false), INTERVALS.INITIAL_DELAY);
             startScheduler();
         }
-
         initialize();
     }
     function init() {
