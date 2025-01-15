@@ -238,11 +238,16 @@
             const titles = [...content.matchAll(titleRegex)];
 
             for (const title of titles) {
-                const titleText = title[1].replace(/<[^>]+>/g, '').trim();
+                const titleText = title[1]
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&nbsp;/g, ' ')
+                    .replace(/&[a-z]+;/gi, '')
+                    .trim();
+
                 if (/(https?:\/\/[^\s<]+)/i.test(titleText) || titleText.includes('free')
                      || titleText.includes('review') || titleText.includes('good')
                      || titleText.includes('what') || titleText.includes('is')
-                     || titleText.trim().split(' ').some(word => word.length > 7)) {
+                     || titleText.split(/\s+/).some(word => word.length > 7)) {
                     console.log(
 `User %c${username}%c detected as spammer. Title containing URL/keyword: %c${titleText}%c`,
                         'color: red; font-weight: bold; padding: 2px;',
@@ -323,7 +328,6 @@
             }
         }
         console.log(`Finished cleaning %c${spamCount}%c spammers!`, 'background: green; color: white; padding: 2px;', '');
-        
 
         const sortedSpamList = spamList.sort((a, b) => {
             const aIncludesSupport = a.includes("recent_content") ? 1 : 0;
@@ -337,17 +341,17 @@
                 return `%c${username}%c: ${link}`;
             }).join('\n'),
             ...sortedSpamList.flatMap(() => ["color: red; font-weight: bold; padding: 1px;", "color: inherit;"]));
-			
+
         const matches = sortedSpamList.filter(item => item.includes("recent_content"));
 
         if (matches.length > 0) {
             alert(`There are ${matches.length} user(s) that need to review the ban.`);
         }
-		const finalResult = {
+        const finalResult = {
             spamList: sortedSpamList,
             banFails: banFails
         };
-		
+
         return finalResult;
     }
     function addSpamCleanerToNavigation() {
