@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      1.9
+// @version      2.0
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -16,7 +16,7 @@
     var banFails = [];
     var spamCount = 0;
     const websiteRegex = /<dt>Website<\/dt>\s*<dd>\s*<a[^>]*>([^<]+)<\/a>/i;
-    var spamKeywords = ["moscow", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề"];
+    var spamKeywords = ["moscow", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france"];
     var defaultSpamKeywordsCount = spamKeywords.length;
     const isUserUsingMobile = () => {
         let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -101,11 +101,12 @@
             ignoreList.push(userId);
             return {};
         }
+        const shouldDelData = finalKW === 'recent_content' ? '0' : '1';
         const formData = new FormData();
         formData.append('_xfToken', xfToken);
-        formData.append('action_threads', '1');
-        formData.append('delete_messages', '1');
-        formData.append('delete_conversations', '1');
+        formData.append('action_threads', shouldDelData);
+        formData.append('delete_messages', shouldDelData);
+        formData.append('delete_conversations', shouldDelData);
         formData.append('ban_user', '1');
         formData.append('no_redirect', '1');
         formData.append('_xfResponseType', 'json');
@@ -238,9 +239,12 @@
 
             for (const title of titles) {
                 const titleText = title[1].replace(/<[^>]+>/g, '').trim();
-                if (/(https?:\/\/[^\s<]+)/i.test(titleText) || titleText.includes('free')) {
+                if (/(https?:\/\/[^\s<]+)/i.test(titleText) || titleText.includes('free')
+                     || titleText.includes('review') || titleText.includes('good')
+                     || titleText.includes('what') ||  || titleText.includes('is')
+                     || titleText.trim().split(' ').some(word => word.length > 7)) {
                     console.log(
-`User %c${username}%c detected as spammer. Title containing URL: %c${titleText}%c`,
+`User %c${username}%c detected as spammer. Title containing URL/keyword: %c${titleText}%c`,
                         'color: red; font-weight: bold; padding: 2px;',
                         '',
                         'color: red; font-weight: bold; padding: 2px;',
@@ -311,7 +315,7 @@
                         console.log(`User %c${title}%c detected as spammer based on keyword %c${matchedKeyword}%c.`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
                         await processSpamUser(currentId, title, matchedKeyword);
                     } else if (await checkRecentContent(currentId, title)) {
-                        await processSpamUser(currentId, title, 'http_in_title');
+                        await processSpamUser(currentId, title, 'recent_content');
                     }
                 }
             } catch (error) {
@@ -319,14 +323,31 @@
             }
         }
         console.log(`Finished cleaning %c${spamCount}%c spammers!`, 'background: green; color: white; padding: 2px;', '');
-        const finalResult = {
-            spamList: spamList,
-            banFails: banFails
-        };
-        console.log(spamList.map(item => {
+        
+
+        const sortedSpamList = spamList.sort((a, b) => {
+            const aIncludesSupport = a.includes("recent_content") ? 1 : 0;
+            const bIncludesSupport = b.includes("recent_content") ? 1 : 0;
+            return aIncludesSupport - bIncludesSupport;
+        });
+
+        console.log(
+            sortedSpamList.map(item => {
                 const [username, link] = item.split(": ");
                 return `%c${username}%c: ${link}`;
-            }).join('\n'), ...spamList.flatMap(() => ["color: red; font-weight: bold; padding: 1px;", "color: inherit;"]));
+            }).join('\n'),
+            ...sortedSpamList.flatMap(() => ["color: red; font-weight: bold; padding: 1px;", "color: inherit;"]));
+			
+        const matches = sortedSpamList.filter(item => item.includes("recent_content"));
+
+        if (matches.length > 0) {
+            alert(`There are ${matches.length} user(s) that need to review the ban.`);
+        }
+		const finalResult = {
+            spamList: sortedSpamList,
+            banFails: banFails
+        };
+		
         return finalResult;
     }
     function addSpamCleanerToNavigation() {
@@ -408,7 +429,7 @@
 
         const INTERVALS = {
             INACTIVITY_CHECK: 5 * 60 * 1000,
-            CLEAN_INTERVAL: 5 * 60 * 1000,
+            CLEAN_INTERVAL: 10 * 60 * 1000,
             INITIAL_DELAY: 5 * 60 * 1000
         };
 
@@ -469,9 +490,9 @@
                 const activeTimeAgo = Math.round((Date.now() - state.lastActiveTime) / 1000);
                 const remainingTime = Math.round((INTERVALS.CLEAN_INTERVAL / 1000) - activeTimeAgo);
                 console.log(`User active recently (${activeTimeAgo}s ago). Skipping clean.`);
-				updateProgress(`User active recently (${activeTimeAgo}s ago). Skipping clean...`, 'green');
-				await new Promise(res => setTimeout(res, 2000));
-				clearAllTimers();
+                updateProgress(`User active recently (${activeTimeAgo}s ago). Skipping clean...`, 'green');
+                await new Promise(res => setTimeout(res, 2000));
+                clearAllTimers();
                 startCountdown(remainingTime - 2);
                 return;
             }
