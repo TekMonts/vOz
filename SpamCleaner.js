@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.1
+// @version      2.2
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -229,22 +229,54 @@
                 return false;
             }
             const content = data.html.content.toLowerCase();
-            const titleRegex = /<h3 class="contentRow-title">\s*<a[^>]*>([\s\S]*?)<\/a>/gi;
-            const titles = [...content.matchAll(titleRegex)];
-            for (const title of titles) {
-                const titleText = title[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/gi, '').trim();
-                if (/\bhttps?:\/\/[^\s<]+/i.test(titleText)) {
-                    console.log(`User %c${username}%c detected as spammer. Title containing URL: %c${titleText}%c`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
-                    return true;
+
+            const contentRegex = /<li[^>]*?>[\s\S]*?<h3[^>]*?>\s*<a[^>]*?>((?:<span[^>]*?>[^<]*?<\/span>\s*)*)(.*?)<\/a>[\s\S]*?<li>([^<]+)<\/li>/gi;
+            const matches = [...content.matchAll(contentRegex)];
+
+            for (const match of matches) {
+                const titleText = match[2].replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, '').trim();
+                const contentType = match[3].trim().toLowerCase();
+                console.log(`${username} - ${contentType}: ${titleText}`);
+                if (contentType.includes('post #')) {
+                    const postNumberMatch = contentType.match(/post #([\d,]+)/i);
+                    if (postNumberMatch) {
+                        const postNumber = parseInt(postNumberMatch[1].replace(/,/g, ''));
+                        if (postNumber > 1) {
+                            continue;
+                        }
+                    }
                 }
-                if (/:[a-z_]+:/.test(titleText) || /\b\d+-\w+\b/.test(titleText) || /\b[a-z]+(\/[a-z]+)+\b/i.test(titleText) || /(\w+\|)+\w+/i.test(titleText)) {
-                    reviewBan.push(`${username} - ${titleText}: https://voz.vn/u/${userId}/#recent-content`);
-                    console.log(`User %c${username}%c: https://voz.vn/u/${userId}/#recent-content\nTitle: %c${titleText}%c\nConsider to ban this user.`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: yellow; font-weight: bold; padding: 2px;', 'color: red; font-weight: bold; padding: 2px;');
-                    continue;
-                }
-                if (titleText.includes('free') || titleText.includes('review') || titleText.includes('good') || titleText.includes('what') || titleText.includes('is') || titleText.includes('how') || titleText.split(/\s+/).some(word => word.length > 7)) {
-                    console.log(`User %c${username}%c detected as spammer. Title containing keyword: %c${titleText}%c`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
-                    return true;
+
+                if (contentType === 'profile post' || contentType === 'thread') {
+                    if (/\bhttps?:\/\/[^\s<]+/i.test(titleText)) {
+                        console.log(`User %c${username}%c detected as spammer. Title containing URL: %c${titleText}%c`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
+                        return true;
+                    }
+
+                    if (/:[a-z_]+:/.test(titleText) ||
+                        /\b\d+-\w+\b/.test(titleText) ||
+                        /\b[a-z]+(\/[a-z]+)+\b/i.test(titleText) ||
+                        /(\w+\|)+\w+/i.test(titleText)) {
+                        reviewBan.push(`${username} - ${titleText}: https://voz.vn/u/${userId}/#recent-content`);
+                        console.log(`User %c${username}%c: https://voz.vn/u/${userId}/#recent-content\nTitle: %c${titleText}%c\nConsider to ban this user.`,
+                            'color: red; font-weight: bold; padding: 2px;', '',
+                            'color: yellow; font-weight: bold; padding: 2px;',
+                            'color: red; font-weight: bold; padding: 2px;');
+                        continue;
+                    }
+
+                    if (titleText.includes('free') ||
+                        titleText.includes('review') ||
+                        titleText.includes('good') ||
+                        titleText.includes('what') ||
+                        titleText.includes('is') ||
+                        titleText.includes('how') ||
+                        titleText.split(/\s+/).some(word => word.length > 8)) {
+                        console.log(`User %c${username}%c detected as spammer. Title containing keyword: %c${titleText}%c`,
+                            'color: red; font-weight: bold; padding: 2px;', '',
+                            'color: red; font-weight: bold; padding: 2px;', '');
+                        return true;
+                    }
                 }
             }
             return false;
