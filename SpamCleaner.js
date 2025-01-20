@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.2
+// @version      2.3
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -10,7 +10,8 @@
 // ==/UserScript==
 (function () {
     'use strict';
-    var ignoreList = [];
+    const IGNORE_LIST_KEY = 'voz_ignore_list';
+    let ignoreList = JSON.parse(localStorage.getItem(IGNORE_LIST_KEY) || '[]');
     var spamList = [];
     var banFails = [];
     var reviewBan = [];
@@ -18,6 +19,55 @@
     const websiteRegex = /<dt>Website<\/dt>\s*<dd>\s*<a[^>]*>([^<]+)<\/a>/i;
     var spamKeywords = ["moscow", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france"];
     var defaultSpamKeywordsCount = spamKeywords.length;
+
+    function saveIgnoreList() {
+        localStorage.setItem(IGNORE_LIST_KEY, JSON.stringify(ignoreList));
+    }
+
+    function addToIgnoreList(userId) {
+        if (!ignoreList.includes(userId)) {
+            ignoreList.push(userId);
+            saveIgnoreList();
+            console.log(`Added user ${userId} to ignore list`);
+        }
+    }
+
+    function setupLiftBanListeners() {
+        const liftBanForms = document.querySelectorAll('form[action*="/ban/lift"]');
+
+        liftBanForms.forEach(form => {
+            const userId = form.action.match(/\/u\/[^.]+\.(\d+)\/ban\/lift/)?.[1];
+
+            if (userId) {
+                const submitButton = form.querySelector('button[type="submit"]');
+                if (submitButton) {
+                    submitButton.addEventListener('click', function (e) {
+                        addToIgnoreList(userId);
+                    });
+                }
+            }
+        });
+    }
+
+    function initialize() {
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length) {
+                    setupLiftBanListeners();
+                }
+            });
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        setupLiftBanListeners();
+    }
+
+    window.vozIgnoreList = ignoreList;
+
     const isUserUsingMobile = () => {
         let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         if (!isMobile) {
@@ -63,8 +113,14 @@
         }
     }
     async function processSpamUser(userId, username, inputKW) {
-        if (ignoreList.includes(userId)) {
-            console.log(`User %c${username}%c is ignored.`, 'background: green; color: white; padding: 2px;', '');
+        const userIdStr = userId.toString();
+        const ignoreArray = Array.isArray(ignoreList) ? ignoreList : ignoreList.toString().split(',').filter(id => id);
+        if (ignoreArray.some(id => id.toString() === userIdStr)) {
+            console.log(`User %c${username}%c with id %c${userId}%c is ignored.`,
+			'background: green; color: white; padding: 2px;',
+			'',
+			'background: green; color: white; padding: 2px;',
+			'');
             return {};
         }
         const baseUrl = 'https://voz.vn';
@@ -98,7 +154,7 @@
         }
         if (!isSpam) {
             console.log(`User %c${username}%c is not a spammer. Skipping ban.`, 'background: green; color: white; padding: 2px;', '');
-            ignoreList.push(userId);
+            addToIgnoreList(userId);
             return {};
         }
         const shouldDelData = finalKW === 'recent_content' ? '0' : '1';
@@ -129,7 +185,7 @@
                 spamList.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
                 console.log(`%c${username}: ${data.message}`, 'background: blue; color: white; padding: 2px;');
             } else {
-                ignoreList.push(userId);
+                addToIgnoreList(userId);
                 banFails.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
                 console.log(`%c${username}: ${data.errors ? data.errors[0] : 'Unknown error'}`, 'background: yellow; color: black; padding: 2px');
             }
@@ -236,7 +292,9 @@
             for (const match of matches) {
                 const titleText = match[2].replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, '').trim();
                 const contentType = match[3].trim().toLowerCase();
-                console.log(`${username} - ${contentType}: ${titleText}`);
+                console.log(`%c${username}%c - %c${contentType}: %c${titleText}`, 'color: red; font-weight: bold; padding: 2px;', '',
+                    'color: blue; font-weight: bold; padding: 2px;',
+                    'color: yellow; font-weight: bold; padding: 2px;');
                 if (contentType.includes('post #')) {
                     const postNumberMatch = contentType.match(/post #([\d,]+)/i);
                     if (postNumberMatch) {
@@ -271,6 +329,7 @@
                         titleText.includes('what') ||
                         titleText.includes('is') ||
                         titleText.includes('how') ||
+                        titleText.includes('provide') ||
                         titleText.split(/\s+/).some(word => word.length > 8)) {
                         console.log(`User %c${username}%c detected as spammer. Title containing keyword: %c${titleText}%c`,
                             'color: red; font-weight: bold; padding: 2px;', '',
@@ -562,11 +621,15 @@
     }
     function init() {
         if (window.location.hostname === 'voz.vn') {
+            initialize();
             scheduleCleanAllSpamer();
         }
     }
+
     if (document.readyState === 'complete') {
         init();
+    } else if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
     } else {
         window.addEventListener('load', init);
     }
