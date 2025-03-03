@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.5
+// @version      2.6
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -21,22 +21,21 @@
     var spamKeywords = ["moscow", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "dinogame", "free"];
     var defaultSpamKeywordsCount = spamKeywords.length;
 
-    function getIgnoreList() {
+    async function getIgnoreList() {
         var appKey = localStorage.getItem(IGNORE_LIST_KEY);
         var url = `https://keyvalue.immanuel.co/api/KeyVal/getValue/${appKey}/data`;
-        return fetch(url)
-        .then(response => {
+        try {
+            var response = await fetch(url);
             if (response.ok) {
-                return response.text();
+                var data = await response.text();
+                return JSON.parse(data || '[]');
             } else {
-                return '[]';
+                return [];
             }
-        })
-        .then(data => JSON.parse(data || '[]'))
-        .catch(e => {
-            console.error("Cannot get ignoreList:", e);
+        } catch (e) {
+            console.error("Error getting ignoreList:", e);
             return [];
-        });
+        }
     }
 
     async function setIgnoreList(list) {
@@ -57,12 +56,22 @@
         }
     }
 
-    function addToIgnoreList(userId) {
-        ignoreList = ignoreList || [];
+    async function addToIgnoreList(userId) {
+
+        if (typeof ignoreList === 'string') {
+            try {
+                ignoreList = JSON.parse(ignoreList);
+            } catch (e) {
+                ignoreList = [];
+            }
+        }
+        if (!Array.isArray(ignoreList)) {
+            ignoreList = [];
+        }
+
         if (!ignoreList.includes(userId)) {
             ignoreList.push(userId);
-            setIgnoreList(ignoreList);
-            console.log(`Added user ${userId} to ignore list`);
+            await setIgnoreList(ignoreList);
         }
     }
 
@@ -75,8 +84,13 @@
             if (userId) {
                 const submitButton = form.querySelector('button[type="submit"]');
                 if (submitButton) {
-                    submitButton.addEventListener('click', function (e) {
-                        addToIgnoreList(userId);
+                    submitButton.addEventListener('click', async function (e) {
+                        try {
+                            await addToIgnoreList(userId);
+                            console.log(`Added ${userId} to ignore list after lift ban`);
+                        } catch (error) {
+                            console.error(`Error adding ${userId} to ignore list:`, error);
+                        }
                     });
                 }
             }
@@ -90,13 +104,7 @@
             var response = await fetch(url);
             if (response.ok) {
                 var data = await response.text();
-                var parsed = JSON.parse(data || '[]');
-                return parsed.length === 3 ? {
-                    fromID: parsed[0],
-                    toID: parsed[1],
-                    latestID: parsed[2]
-                }
-                 : null;
+                return JSON.parse(data || '[]');
             } else {
                 return null;
             }
@@ -105,6 +113,7 @@
             return null;
         }
     }
+
     async function setLastRange(value) {
         var appKey = localStorage.getItem(LATEST_RANGE_KEY);
         var rangeArray = [value.fromID, value.toID, value.latestID];
@@ -141,8 +150,6 @@
 
         setupLiftBanListeners();
     }
-
-    window.vozIgnoreList = ignoreList;
 
     const isUserUsingMobile = () => {
         let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -190,7 +197,19 @@
     }
     async function processSpamUser(userId, username, inputKW) {
         const userIdStr = userId.toString();
-        const ignoreArray = Array.isArray(ignoreList) ? ignoreList : ignoreList.toString().split(',').filter(id => id);
+		
+        let parsedIgnoreList = ignoreList;
+        if (typeof ignoreList === 'string') {
+            try {
+                parsedIgnoreList = JSON.parse(ignoreList);
+            } catch (e) {
+                console.warn("Cannot parse ignoreList to array: ", e);
+                parsedIgnoreList = [];
+            }
+        }
+
+        const ignoreArray = Array.isArray(parsedIgnoreList) ? parsedIgnoreList : parsedIgnoreList.toString().split(',').filter(id => id);
+
         if (ignoreArray.some(id => id.toString() === userIdStr)) {
             console.log(`User %c${username}%c with id %c${userId}%c is ignored.`,
                 'background: green; color: white; padding: 2px;',
@@ -230,7 +249,7 @@
         }
         if (!isSpam) {
             console.log(`User %c${username}%c is not a spammer. Skipping ban.`, 'background: green; color: white; padding: 2px;', '');
-            addToIgnoreList(userId);
+            await addToIgnoreList(userId);
             return {};
         }
         const shouldDelData = finalKW === 'recent_content' ? '0' : '1';
@@ -261,7 +280,7 @@
                 spamList.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
                 console.log(`%c${username}: ${data.message}`, 'background: blue; color: white; padding: 2px;');
             } else {
-                addToIgnoreList(userId);
+                await addToIgnoreList(userId);
                 banFails.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
                 console.log(`%c${username}: ${data.errors ? data.errors[0] : 'Unknown error'}`, 'background: yellow; color: black; padding: 2px');
             }
@@ -272,42 +291,56 @@
         }
     }
     async function findNewestMember(autorun) {
-        return new Promise((resolve, reject) => {
-            let searchForNewest = false;
-            let userId = 0;
-            const firstMemberElement = document.querySelector('.listHeap li:first-child a') || Array.from(document.querySelectorAll('dl.pairs.pairs--justified dt')).find(dt => dt.textContent.trim() === 'Latest member')?.closest('dl').querySelector('dd a.username');
+        let searchForNewest = false;
+        let userId = 0;
+        const firstMemberElement = document.querySelector('.listHeap li:first-child a') ||
+            Array.from(document.querySelectorAll('dl.pairs.pairs--justified dt'))
+            .find(dt => dt.textContent.trim() === 'Latest member')
+            ?.closest('dl').querySelector('dd a.username');
 
-            const latestRange = getLastRange();
-            if (firstMemberElement) {
-                userId = firstMemberElement.getAttribute('data-user-id');
-                console.log(`Newest Member User ID in this page: %c${userId}`, 'background: green; color: white; padding: 2px;');
-                if (latestRange && parseInt(userId) <= parseInt(latestRange.latestID)) {
-                    searchForNewest = true;
-                } else {
-                    resolve(userId);
-                    return;
-                }
-            } else {
-                searchForNewest = true;
+        let latestRange = await getLastRange();
+        if (typeof latestRange === 'string') {
+            try {
+                latestRange = JSON.parse(latestRange);
+            } catch (e) {
+                latestRange = [];
             }
-            const userPage = 'https://voz.vn/u/';
-            if (firstMemberElement && autorun) {
-                console.log('Auto run triggred!');
+        }
+
+        if (firstMemberElement) {
+            userId = firstMemberElement.getAttribute('data-user-id');
+            console.log(`Newest Member User ID in this page: %c${userId}`, 'background: green; color: white; padding: 2px;');
+            if (latestRange && parseInt(userId) <= parseInt(latestRange[2])) {
+                searchForNewest = true;
+            } else {
+                return userId;
+            }
+        } else {
+            searchForNewest = true;
+        }
+
+        const userPage = 'https://voz.vn/u/';
+        if (firstMemberElement && autorun) {
+            console.log('Auto run triggred!');
+            if (!isUserUsingMobile()) {
+                location.replace(userPage);
+            }
+            return userId;
+        }
+
+        if (searchForNewest) {
+            userId = parseInt(latestRange[2]);
+            const tab = window.open(userPage, '_blank');
+            if (!tab) {
+                console.warn('Failed to open tab');
                 if (!isUserUsingMobile()) {
-                    location.replace(userPage)
+                    location.replace(userPage);
                 }
                 return userId;
             }
-            if (searchForNewest) {
-                userId = latestRange.latestID;
-                const tab = window.open(userPage, '_blank');
-                if (!tab) {
-                    console.warn('Failed to open tab');
-                    if (!isUserUsingMobile()) {
-                        location.replace(userPage)
-                    }
-                    return userId;
-                }
+
+            // Chuyển interval thành Promise để await
+            return new Promise((resolve) => {
                 const checkTabInterval = setInterval(() => {
                     try {
                         if (tab.closed) {
@@ -337,9 +370,10 @@
                         resolve(userId);
                     }
                 }, 1000);
-            }
-        });
+            });
+        }
     }
+
     function calSpamCount(spamCount = -1) {
         if (spamCount > -1) {
             localStorage.setItem('latestCount', spamCount);
@@ -430,9 +464,16 @@
         try {
             let maxAllow = await findNewestMember(autorun);
             let latestRange = await getLastRange();
+            if (typeof latestRange === 'string') {
+                try {
+                    latestRange = JSON.parse(latestRange);
+                } catch (e) {
+                    latestRange = [];
+                }
+            }
             if (latestRange) {
-                fromID = latestRange[2] - 10;
-                toID = Math.min(latestRange[2] + 1000, maxAllow);
+                fromID = parseInt(latestRange[2]) - 20;
+                toID = Math.min(parseInt(latestRange[2]) + 1000, maxAllow);
             } else {
                 fromID = maxAllow - 100;
                 toID = maxAllow;
