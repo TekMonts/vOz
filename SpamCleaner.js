@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.3
+// @version      2.4
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -11,23 +11,57 @@
 (function () {
     'use strict';
     const IGNORE_LIST_KEY = 'voz_ignore_list';
-    let ignoreList = JSON.parse(localStorage.getItem(IGNORE_LIST_KEY) || '[]');
+    const LATEST_RANGE_KEY = 'voz_latest_range';
     var spamList = [];
+    var ignoreList = [];
     var banFails = [];
     var reviewBan = [];
     var spamCount = 0;
     const websiteRegex = /<dt>Website<\/dt>\s*<dd>\s*<a[^>]*>([^<]+)<\/a>/i;
-    var spamKeywords = ["moscow", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france"];
+    var spamKeywords = ["moscow", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cạnh tranh", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "tư vấn", "hỗ trợ", "chuyên nghiệp", "chất lượng", "sòng bạc", "song bac", "trò chơi", "tro choi", "đổi thưởng", "doi thuong", "game bài", "game bai", "xóc đĩa", "trực tiếp", "truc tiep", "trực tuyến", "truc tuyen", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "betting", "subre", "choangclub", "cá độ", "ca do", "bắn cá", "ban ca", "gamebai", "gamedoithuong", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "khám phá", "chia sẻ", "may mắn", "lý tưởng", "phát tài", "ưu hóa", "công cụ", "truy cập", "lưu lượng", "trải nghiệm", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "uy tín", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "dinogame", "free"];
     var defaultSpamKeywordsCount = spamKeywords.length;
 
-    function saveIgnoreList() {
-        localStorage.setItem(IGNORE_LIST_KEY, JSON.stringify(ignoreList));
+    function getIgnoreList() {
+        var appKey = localStorage.getItem(IGNORE_LIST_KEY);
+        var url = `https://keyvalue.immanuel.co/api/KeyVal/getValue/${appKey}/data`;
+        return fetch(url)
+        .then(response => {
+            if (response.ok) {
+                return response.text();
+            } else {
+                return '[]';
+            }
+        })
+        .then(data => JSON.parse(data || '[]'))
+        .catch(e => {
+            console.error("Cannot get ignoreList:", e);
+            return [];
+        });
+    }
+
+    async function setIgnoreList(list) {
+        var appKey = localStorage.getItem(IGNORE_LIST_KEY);
+        var jsonStr = JSON.stringify(list);
+        while (jsonStr.length > 1024 && list.length > 0) {
+            list.shift();
+            jsonStr = JSON.stringify(list);
+        }
+        var url = `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${appKey}/data/${encodeURIComponent(jsonStr)}`;
+        try {
+            var response = await fetch(url, {
+                method: 'POST'
+            });
+            return response.ok;
+        } catch (e) {
+            return false;
+        }
     }
 
     function addToIgnoreList(userId) {
+        ignoreList = ignoreList || [];
         if (!ignoreList.includes(userId)) {
             ignoreList.push(userId);
-            saveIgnoreList();
+            setIgnoreList(ignoreList);
             console.log(`Added user ${userId} to ignore list`);
         }
     }
@@ -47,6 +81,48 @@
                 }
             }
         });
+    }
+
+    async function getLastRange() {
+        var appKey = localStorage.getItem(LATEST_RANGE_KEY);
+        var url = `https://keyvalue.immanuel.co/api/KeyVal/getValue/${appKey}/data`;
+        try {
+            var response = await fetch(url);
+            if (response.ok) {
+                var data = await response.text();
+                var parsed = JSON.parse(data || '[]');
+                return parsed.length === 3 ? {
+                    fromID: parsed[0],
+                    toID: parsed[1],
+                    latestID: parsed[2]
+                }
+                 : null;
+            } else {
+                return null;
+            }
+        } catch (e) {
+            console.error("Error getting lastRange:", e);
+            return null;
+        }
+    }
+    async function setLastRange(value) {
+        var appKey = localStorage.getItem(LATEST_RANGE_KEY);
+        var rangeArray = [value.fromID, value.toID, value.latestID];
+        var jsonStr = JSON.stringify(rangeArray);
+        var url = `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${appKey}/data/${encodeURIComponent(jsonStr)}`;
+        try {
+            var response = await fetch(url, {
+                method: 'POST',
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Error ${response.status}: ${response.statusText} - ${errorText}`);
+            }
+            return true;
+        } catch (e) {
+            console.error("Error sending data:", e);
+            return false;
+        }
     }
 
     function initialize() {
@@ -117,10 +193,10 @@
         const ignoreArray = Array.isArray(ignoreList) ? ignoreList : ignoreList.toString().split(',').filter(id => id);
         if (ignoreArray.some(id => id.toString() === userIdStr)) {
             console.log(`User %c${username}%c with id %c${userId}%c is ignored.`,
-			'background: green; color: white; padding: 2px;',
-			'',
-			'background: green; color: white; padding: 2px;',
-			'');
+                'background: green; color: white; padding: 2px;',
+                '',
+                'background: green; color: white; padding: 2px;',
+                '');
             return {};
         }
         const baseUrl = 'https://voz.vn';
@@ -200,8 +276,8 @@
             let searchForNewest = false;
             let userId = 0;
             const firstMemberElement = document.querySelector('.listHeap li:first-child a') || Array.from(document.querySelectorAll('dl.pairs.pairs--justified dt')).find(dt => dt.textContent.trim() === 'Latest member')?.closest('dl').querySelector('dd a.username');
-            const storedRange = localStorage.getItem('latestRange');
-            const latestRange = storedRange ? JSON.parse(storedRange) : null;
+
+            const latestRange = getLastRange();
             if (firstMemberElement) {
                 userId = firstMemberElement.getAttribute('data-user-id');
                 console.log(`Newest Member User ID in this page: %c${userId}`, 'background: green; color: white; padding: 2px;');
@@ -353,13 +429,12 @@
         toID = 0;
         try {
             let maxAllow = await findNewestMember(autorun);
-            const storedRange = localStorage.getItem('latestRange');
-            let latestRange = storedRange ? JSON.parse(storedRange) : null;
+            let latestRange = await getLastRange();
             if (latestRange) {
-                fromID = latestRange.latestID - 10;
-                toID = Math.min(latestRange.latestID + 1000, maxAllow);
+                fromID = latestRange[2] - 10;
+                toID = Math.min(latestRange[2] + 100, maxAllow);
             } else {
-                fromID = maxAllow - 1000;
+                fromID = maxAllow - 100;
                 toID = maxAllow;
             }
             toID = Math.min(toID, maxAllow);
@@ -368,7 +443,7 @@
                 toID,
                 latestID: toID
             };
-            localStorage.setItem('latestRange', JSON.stringify(newRange));
+            await setLastRange(newRange);
         } catch (error) {
             console.error('Failed to get the member range to process:', error);
             return {
@@ -449,17 +524,17 @@
         button.textContent = 'Clean Now';
         button.style.cssText = `
 
-    margin-right: 10px; 
+    margin-right: 10px;
 
-    color: white; 
+    color: white;
 
-    border: none; 
+    border: none;
 
-    padding: 5px 10px; 
+    padding: 5px 10px;
 
-    border-radius: 5px; 
+    border-radius: 5px;
 
-    background-color: #007bff; 
+    background-color: #007bff;
 
     font-size: 12px;
 
@@ -468,15 +543,15 @@
         progressTracker.id = 'voz-spam-cleaner-tracker';
         progressTracker.style.cssText = `
 
-    display: inline-flex; 
+    display: inline-flex;
 
-    align-items: center; 
+    align-items: center;
 
-    background-color: #f0f0f0; 
+    background-color: #f0f0f0;
 
-    padding: 5px 10px; 
+    padding: 5px 10px;
 
-    border-radius: 5px; 
+    border-radius: 5px;
 
     font-size: 12px;
 
@@ -621,6 +696,15 @@
     }
     function init() {
         if (window.location.hostname === 'voz.vn') {
+            if (!localStorage.getItem(IGNORE_LIST_KEY) || !localStorage.getItem(LATEST_RANGE_KEY)) {
+                var ignoreAppKey = prompt("Nhập app key cho danh sách bỏ qua:");
+                var rangeAppKey = prompt("Nhập app key cho phạm vi xử lý cuối cùng:");
+                localStorage.setItem(IGNORE_LIST_KEY, ignoreAppKey);
+                localStorage.setItem(LATEST_RANGE_KEY, rangeAppKey);
+            }
+            getIgnoreList().then(ig => {
+                ignoreList = ig;
+            });
             initialize();
             scheduleCleanAllSpamer();
         }
