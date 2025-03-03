@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.4
+// @version      2.5
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -432,7 +432,7 @@
             let latestRange = await getLastRange();
             if (latestRange) {
                 fromID = latestRange[2] - 10;
-                toID = Math.min(latestRange[2] + 100, maxAllow);
+                toID = Math.min(latestRange[2] + 1000, maxAllow);
             } else {
                 fromID = maxAllow - 100;
                 toID = maxAllow;
