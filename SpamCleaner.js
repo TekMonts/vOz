@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      3.0
+// @version      3.1
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -41,7 +41,7 @@
     async function setIgnoreList(list) {
         var appKey = localStorage.getItem(IGNORE_LIST_KEY);
         var jsonStr = JSON.stringify(list);
-        while (jsonStr.length > 1024 && list.length > 0) {
+        while (jsonStr.length > 200 && list.length > 0) {
             list.shift();
             jsonStr = JSON.stringify(list);
         }
@@ -253,6 +253,7 @@
             return {};
         }
         const shouldDelData = finalKW === 'recent_content' ? '0' : '1';
+		const urlSubfix = finalKW === 'recent_content' ? 'recent-content' : 'about';
         if (finalKW.includes("http")) {
             reviewBan.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
         }
@@ -280,11 +281,11 @@
             const data = await response.json();
             if (data.status === 'ok') {
                 spamCount++;
-                spamList.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
+                spamList.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#${urlSubfix}`);
                 console.log(`%c${username}: ${data.message}`, 'background: #02f55b; color: white; padding: 2px;');
             } else {
                 await addToIgnoreList(userId);
-                banFails.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#about`);
+                banFails.push(`${username} - ${finalKW}: https://voz.vn/u/${userId}/#${urlSubfix}`);
                 console.log(`%c${username}: ${data.errors ? data.errors[0] : 'Unknown error'}`, 'background: yellow; color: black; padding: 2px');
             }
             return data;
@@ -382,6 +383,17 @@
         }
         return localStorage.getItem('latestCount') || 0;
     }
+
+    const tempDiv = document.createElement('div');
+
+    async function stripHtmlTags(html) {
+        tempDiv.innerHTML = html;
+        let text = tempDiv.textContent || tempDiv.innerText || '';
+        text = text.replace(/\s+/g, ' ').trim();
+        return text;
+
+    }
+
     async function checkRecentContent(userId, username) {
         const recentUrl = `https://voz.vn/u/${userId}/recent-content?_xfResponseType=json`;
         try {
@@ -408,30 +420,13 @@
                     'color: #02c4f5; font-weight: bold; padding: 2px;',
                     'color: yellow; font-weight: bold; padding: 2px;');
                 if (contentType.includes('post #')) {
-                    const postNumberMatch = contentType.match(/post #([\d,]+)/i);
-                    if (postNumberMatch) {
-                        const postNumber = parseInt(postNumberMatch[1].replace(/,/g, ''));
-                        if (postNumber > 1) {
-                            continue;
-                        }
-                    }
+                    return false
                 }
 
                 if (contentType === 'profile post' || contentType === 'thread') {
-                    if (/\bhttps?:\/\/[^\s<]+/i.test(titleText)) {
-                        console.log(`User %c${username}%c detected as spammer. Title containing URL: %c${titleText}%c`, 'color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '');
-                        return true;
-                    }
-
-                    if (titleText.includes('free') ||
-                        titleText.includes('review') ||
-                        titleText.includes('good') ||
-                        titleText.includes('what') ||
-                        titleText.includes('is') ||
-                        titleText.includes('how') ||
-                        titleText.includes('provide') ||
-                        titleText.split(/\s+/).some(word => word.length > 8)) {
-                        console.log(`User %c${username}%c detected as spammer. Title containing keyword: %c${titleText}%c`,
+                    const words = titleText.split(/\s+/);
+                    if (words.some(word => /^[a-z]{8,}$/i.test(word)) || /\bhttps?:\/\/[^\s<]+/i.test(titleText) || spamKeywords.some(keyword => titleText.includes(keyword))) {
+                        console.log(`User %c${username}%c detected as spammer. Title contains: %c${titleText}%c`,
                             'color: red; font-weight: bold; padding: 2px;', '',
                             'color: red; font-weight: bold; padding: 2px;', '');
                         return true;
@@ -443,14 +438,6 @@
             console.error(`Error checking recent content for ${username}:`, error);
             return false;
         }
-    }
-    const tempDiv = document.createElement('div');
-
-    async function stripHtmlTags(html) {
-        tempDiv.innerHTML = html;
-        let text = tempDiv.textContent || tempDiv.innerText || '';
-        text = text.replace(/\s+/g, ' ').trim();
-        return text;
     }
 
     async function cleanAllSpamer(autorun) {
@@ -526,7 +513,7 @@
                             await processSpamUser(currentId, title, matchedKeyword);
                         }
                     } else {
-                        console.log(`Processing user: %c${title}%c - https://voz.vn/u/${currentId}/#about`,
+                        console.log(`Processing user: %c${title}%c - https://voz.vn/u/${currentId}`,
                             'color: #17f502; font-weight: bold; padding: 2px;',
                             '');
 
