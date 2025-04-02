@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      3.7
+// @version      3.8
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -106,7 +106,6 @@
          * @param {Object} options - Fetch options
          * @returns {Promise<Object>} The request result
          */
-
         async fetchWithErrorHandling(url, options = {}) {
             try {
                 const response = await fetch(url, options);
@@ -137,7 +136,6 @@
          * @param {*} defaultValue - Default value in case of error
          * @returns {Promise<*>} Data from the API
          */
-
         async getValue(appKey, dataKey, defaultValue = null) {
             const url = `${API_BASE_URL}/getValue/${appKey}/${dataKey}`;
             const result = await this.fetchWithErrorHandling(url);
@@ -214,7 +212,6 @@
          * @param {Array} list - Array containing the IDs of ignored users
          * @returns {Promise<boolean>} Update result
          */
-
         async setIgnoreList(list) {
 
             if (!Array.isArray(list)) {
@@ -226,13 +223,11 @@
                 return false;
 
             let jsonStr = JSON.stringify(list);
-            // Giới hạn kích thước danh sách để tránh vượt quá giới hạn API
             while (jsonStr.length > IGNORE_LIST_SIZE_LIMIT && list.length > 0) {
                 console.log("reach limit: " + jsonStr);
-                list.shift(); // Loại bỏ phần tử đầu tiên nếu danh sách quá lớn
+                list.shift();
                 jsonStr = JSON.stringify(list);
             }
-            alert("Final List: " + list);
             return await apiManager.updateValue(appKey, 'data', list);
         },
 
@@ -242,7 +237,6 @@
          * @param {string|number} userId - The user ID to add to the ignore list
          * @returns {Promise<boolean>} Result of the addition
          */
-
         async addToIgnoreList(userId) {
             try {
                 if (ignoreList.includes(userId)) {
@@ -267,7 +261,6 @@
          *
          * @returns {Promise<Object|null>} Object containing the range information or null if there's an error
          */
-
         async getLastRange() {
             const appKey = storageManager.get(LATEST_RANGE_KEY);
             if (!appKey)
@@ -312,7 +305,6 @@
          * @param {Object} range - Object containing the range information (fromID, toID, latestID)
          * @returns {Promise<boolean>} Update result
          */
-
         async setLastRange(range) {
             const appKey = storageManager.get(LATEST_RANGE_KEY);
             if (!appKey)
@@ -333,7 +325,6 @@
          * @param {number} count - The new spam count (if updating)
          * @returns {number} The current spam count
          */
-
         getSpamCount() {
             return parseInt(storageManager.get(LATEST_COUNT_KEY, '0'));
         },
@@ -344,7 +335,6 @@
          * @param {number} count - The new spam count
          * @returns {boolean} Update result
          */
-
         setSpamCount(count) {
             return storageManager.set(LATEST_COUNT_KEY, count.toString());
         },
@@ -354,7 +344,6 @@
          *
          * @returns {Promise<Array>} The updated list of spam keywords
          */
-
         async getSpamKeywords() {
             if (this.extendedKeywords && this.extendedKeywords.length > defaultSpamKeywordsCount) {
                 return this.extendedKeywords;
@@ -405,7 +394,6 @@
          * @param {Array} keywords - The list of spam keywords
          * @returns {Promise<boolean>} true if spam is detected, false otherwise
          */
-
         async checkRecentContent(userId, username, keywords) {
             const recentUrl = `${VOZ_BASE_URL}/u/${userId}/recent-content?_xfResponseType=json`;
 
@@ -473,7 +461,6 @@
          * @param {Array} keywords - The list of spam keywords
          * @returns {Promise<Object>} The result of the processing
          */
-
         async processSpamUser(userId, username, inputKW, keywords) {
             const userIdStr = userId.toString();
 
@@ -614,7 +601,6 @@
          *
          * @returns {boolean} true if the user is using a mobile device
          */
-
         isUserUsingMobile() {
             let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
@@ -641,7 +627,6 @@
          * @param {boolean} autorun - Whether to automatically redirect
          * @returns {Promise<number|string>} The ID of the latest member
          */
-
         async findNewestMember(autorun) {
             let searchForNewest = false;
             let userId = 0;
@@ -652,7 +637,7 @@
                 ?.closest('dl').querySelector('dd a.username');
 
             let latestRange = await rangeManager.getLastRange();
-
+            console.log(`Latest cleaner range: ${latestRange}`);
             if (firstMemberElement) {
                 userId = firstMemberElement.getAttribute('data-user-id');
                 console.log(`Newest Member User ID in this page: %c${userId}`, 'background: green; color: white; padding: 2px;');
@@ -755,7 +740,6 @@
      * @param {string} html - The HTML string to be processed
      * @returns {string} The processed text string
      */
-
     function stripHtmlTags(html) {
         if (!html)
             return '';
@@ -770,7 +754,6 @@
      * Set up a listener for unban forms
      * When a user is unbanned, automatically add them to the ignore list
      */
-
     function setupLiftBanListeners() {
         const liftBanForms = document.querySelectorAll('form[action*="/ban/lift"]');
 
@@ -796,7 +779,6 @@
     /**
      * Initialize a DOM observer to monitor changes and set up event listeners
      */
-
     function initializeBanListeners() {
         // Create a MutationObserver to monitor DOM changes
         const observer = new MutationObserver((mutations) => {
@@ -821,7 +803,6 @@
      * @param {boolean} autorun - Whether to automatically redirect
      * @returns {Promise<Object>} The cleanup result
      */
-
     async function cleanAllSpamer(autorun) {
         console.clear();
         spamList = [];
@@ -1138,7 +1119,6 @@
         /**
          * Run the spam cleanup process
          */
-
         async function runCleanSpamer() {
             if (state.isRunning) {
                 console.log('Clean process is still running. Skipping...');
@@ -1188,7 +1168,6 @@
          *
          * @param {boolean} isCleaning - Whether the cleanup is in progress
          */
-
         function updateUIForCleaning(isCleaning) {
             cleanButton.disabled = isCleaning;
             autorunButton.disabled = isCleaning;
@@ -1204,7 +1183,6 @@
          *
          * @param {number} minutes - The countdown time in minutes
          */
-
         function startCountdown(minutes) {
             state.remainingTime = minutes * 60;
 
@@ -1230,7 +1208,6 @@
         /**
          * Toggle auto-cleanup mode
          */
-
         function toggleAutorun() {
             if (state.isRunning) {
                 console.log('Cannot change autorun settings while cleaning is running.');
@@ -1266,7 +1243,6 @@
         /**
          * Initialize event listeners
          */
-
         function initialize() {
             // Prevent registering event listeners multiple times
             if (!cleanButton.hasAttribute('data-initialized')) {
