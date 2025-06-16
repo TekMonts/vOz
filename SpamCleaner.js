@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      4.0
+// @version      4.1
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -872,43 +872,131 @@
         async function checkIfUserBanned(currentId) {
             const url = `${VOZ_BASE_URL}/u/${currentId}?_xfResponseType=json&_xfWithData=1`;
             let username = '';
-
             try {
                 const result = await apiManager.fetchWithErrorHandling(url);
-
                 if (!result.success) {
                     console.error(`Failed to fetch data for ID: ${currentId}`);
                     return {
                         username: 'Not Found',
-                        status: false
+                        status: false,
+                        message: '',
+                        hasAvatar: false
                     };
                 }
-
                 const data = await result.response.json();
-
                 if (data.status === "ok") {
                     const rawContent = data.html?.content?.toLowerCase() || '';
+                    const fullContent = data.html?.content || '';
                     username = data.html?.title || '';
-
                     const isBanned = rawContent.includes('username--banned');
+
+                    // Extract join and last seen information
+                    let joinedText = '';
+                    let lastSeenText = '';
+                    let timeDiff = '';
+                    let viewingInfo = '';
+                    let hasAvatar = false;
+                    let userTitle = '';
+
+                    // Check for avatar (not default avatar)
+                    hasAvatar = !fullContent.includes('avatar--default');
+
+                    // Extract userTitle
+                    const userTitleMatch = fullContent.match(/<span class="userTitle"[^>]*>([^<]*)<\/span>/i);
+                    if (userTitleMatch) {
+                        userTitle = userTitleMatch[1].trim();
+                    }
+
+                    // Extract joined date
+                    const joinedMatch = fullContent.match(/<dt>Joined<\/dt>\s*<dd><time[^>]*title="([^"]*)"[^>]*>([^<]*)<\/time><\/dd>/i);
+                    if (joinedMatch) {
+                        joinedText = joinedMatch[2];
+                    }
+
+                    // FIXED: Extract last seen info and activity (allow full HTML capture)
+                    const lastSeenMatch = fullContent.match(/<dt>Last seen<\/dt>\s*<dd[^>]*>\s*<time[^>]*>([^<]*)<\/time>\s*(<span[^>]*>&middot;<\/span>\s*(.*))?/i);
+                    if (lastSeenMatch) {
+                        lastSeenText = lastSeenMatch[1]; // e.g., "5 minutes ago"
+                        let activityText = lastSeenMatch[3] || '';
+
+                        if (activityText.includes('Viewing thread')) {
+                            const threadMatch = activityText.match(/Viewing thread <em><a[^>]*>([^<]*)<\/a><\/em>/);
+                            viewingInfo = threadMatch ? `Viewing thread: ${threadMatch[1]}` : 'Viewing thread';
+                        } else if (activityText.includes('Viewing direct messages')) {
+                            viewingInfo = 'Viewing direct messages';
+                        } else if (activityText.includes('Managing account details')) {
+                            viewingInfo = 'Managing account details';
+                        } else if (activityText.includes('Viewing member profile')) {
+                            const profileMatch = activityText.match(/Viewing member profile <em><a[^>]*>([^<]*)<\/a><\/em>/);
+                            viewingInfo = profileMatch ? `Viewing member profile ${profileMatch[1]}` : 'Viewing member profile';
+                        } else if (activityText.includes('Viewing')) {
+                            viewingInfo = activityText.replace(/<[^>]*>/g, '').trim();
+                        } else if (activityText) {
+                            viewingInfo = activityText.replace(/<[^>]*>/g, '').trim();
+                        }
+                    }
+
+                    // Calculate time difference
+                    const joinedTimestamp = extractTimestamp(fullContent, 'Joined');
+                    const lastSeenTimestamp = extractTimestamp(fullContent, 'Last seen');
+
+                    if (joinedTimestamp && lastSeenTimestamp) {
+                        const diffMs = lastSeenTimestamp - joinedTimestamp;
+                        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                        const hours = Math.floor(diffMinutes / 60);
+                        const minutes = diffMinutes % 60;
+                        timeDiff = `${hours}h${minutes.toString().padStart(2, '0')}'`;
+                    }
+
+                    // Construct message
+                    let message = '';
+
+                    if (userTitle) {
+                        message += `%cTitle        : %c${userTitle}\n`;
+                    }
+                    if (joinedText) {
+                        message += `%cJoined       : %c${joinedText}\n`;
+                    }
+                    if (lastSeenText) {
+                        message += `%cLast Seen    : %c${lastSeenText}\n`;
+                    }
+                    if (timeDiff) {
+                        message += `%cTime Diff    : %c${timeDiff}\n`;
+                    }
+                    if (viewingInfo) {
+                        message += `%cActivity     : %c${viewingInfo}`;
+                    }
+
                     return {
                         username,
-                        status: isBanned
+                        status: isBanned,
+                        message,
+                        hasAvatar
                     };
                 } else {
                     console.warn(`Unexpected response for ID ${currentId}:`, data);
                     return {
                         username: 'Not Found',
-                        status: false
+                        status: false,
+                        message: '',
+                        hasAvatar: false
                     };
                 }
             } catch (error) {
                 console.error(`Error processing ID ${currentId}:`, error);
                 return {
                     username: 'Not Found',
-                    status: false
+                    status: false,
+                    message: '',
+                    hasAvatar: false
                 };
             }
+        }
+
+        function extractTimestamp(content, type) {
+            const regex = new RegExp(`<dt>${type}<\\/dt>\\s*<dd[^>]*>\\s*<time[^>]*data-timestamp="(\\d+)"`, 'i');
+            const match = content.match(regex);
+            return match ? parseInt(match[1]) * 1000 : null;
         }
 
         /**
@@ -959,10 +1047,21 @@
                     let matchedKeyword = null;
 
                     if (cleanedContent) {
-                        console.log(`Processing user: %c${rawTitle}%c -  ${VOZ_BASE_URL}/u/${currentId}/#about\n%c${cleanedContent}`,
-                            'color: #17f502; font-weight: bold; padding: 2px;',
-                            '',
-                            'color: yellow; font-weight: bold; padding: 2px;');
+                        console.log(
+                            `Processing user: %c${rawTitle}\n${isBanned.message}\n` +
+                            `Profile Link  : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` +
+							`HTML content  ↓\n%c${cleanedContent}`,
+                            'color: #17f502; font-weight: bold;',
+                            // style groups for message fields (cặp đôi liên tục)
+                            'color: gray;', 'color: gold; font-weight: bold;',
+                            'color: gray;', 'color: cyan;',
+                            'color: gray;', 'color: orange;',
+                            'color: gray;', 'color: lightgreen;',
+                            'color: gray;', 'color: pink;',
+                            // profile link
+                            'color: orange;',
+                            // cleaned content
+                            'color: yellow; font-family: monospace;');
 
                         // Check for spam keywords in the username
                         matchedKeyword = spamUserName.find(keyword => title.includes(keyword));
@@ -988,9 +1087,19 @@
                             reviewBan.push(`${rawTitle} - ${matchedKeyword}: ${VOZ_BASE_URL}/u/${currentId}/#about`);
                         }
                     } else {
-                        console.log(`Processing user: %c${rawTitle}%c - ${VOZ_BASE_URL}/u/${currentId}`,
-                            'color: #17f502; font-weight: bold; padding: 2px;',
-                            '');
+                        console.log(
+                            `Processing user: %c${rawTitle}\n${isBanned.message}\n` +
+                            `Profile Link  : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
+                            'color: #17f502; font-weight: bold;',
+                            // style groups for message fields (cặp đôi liên tục)
+                            'color: gray;', 'color: gold; font-weight: bold;',
+                            'color: gray;', 'color: cyan;',
+                            'color: gray;', 'color: orange;',
+                            'color: gray;', 'color: lightgreen;',
+                            'color: gray;', 'color: pink;',
+                            // profile link
+                            'color: orange;');
+
                     }
 
                     // If no spam is detected in the profile, check the recent content
@@ -1168,12 +1277,7 @@
         };
 
         // Create user interface
-        const {
-            cleanButton,
-            autorunButton,
-            progressTracker,
-            updateProgress
-        } = addSpamCleanerToNavigation();
+        const { cleanButton, autorunButton, progressTracker, updateProgress } = addSpamCleanerToNavigation();
 
         /**
          * Run the spam cleanup process
