@@ -2,7 +2,7 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      4.1
+// @version      4.2
 // @description  Spam cleaning tool for voz.vn
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
@@ -952,20 +952,23 @@
                     let message = '';
 
                     if (userTitle) {
-                        message += `%cTitle        : %c${userTitle}\n`;
+                        message += `%cTitle           : %c${userTitle}\n`;
                     }
                     if (joinedText) {
-                        message += `%cJoined       : %c${joinedText}\n`;
+                        message += `%cJoined          : %c${joinedText}\n`;
                     }
                     if (lastSeenText) {
-                        message += `%cLast Seen    : %c${lastSeenText}\n`;
+                        message += `%cLast Seen       : %c${lastSeenText}\n`;
                     }
                     if (timeDiff) {
-                        message += `%cTime Diff    : %c${timeDiff}\n`;
+                        message += `%cTime Diff       : %c${timeDiff}\n`;
                     }
+					
                     if (viewingInfo) {
-                        message += `%cActivity     : %c${viewingInfo}`;
-                    }
+                        message += `%cActivity        : %c${viewingInfo}`;
+                    } else {
+						message += `%cActivity        : %cNo activity found`;
+					}
 
                     return {
                         username,
@@ -1048,18 +1051,21 @@
 
                     if (cleanedContent) {
                         console.log(
-                            `Processing user: %c${rawTitle}\n${isBanned.message}\n` +
-                            `Profile Link  : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` +
-							`HTML content  ↓\n%c${cleanedContent}`,
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
+							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` +
+							`HTML content    ↓\n%c${cleanedContent}`,
                             'color: #17f502; font-weight: bold;',
-                            // style groups for message fields (cặp đôi liên tục)
+                            // style groups for message fields
                             'color: gray;', 'color: gold; font-weight: bold;',
                             'color: gray;', 'color: cyan;',
                             'color: gray;', 'color: orange;',
                             'color: gray;', 'color: lightgreen;',
                             'color: gray;', 'color: pink;',
+							// has avatar
+							'color: gray;', 'color: #ff96f6;',
                             // profile link
-                            'color: orange;',
+                            'color: gray;', 'color: orange;',
                             // cleaned content
                             'color: yellow; font-family: monospace;');
 
@@ -1088,17 +1094,20 @@
                         }
                     } else {
                         console.log(
-                            `Processing user: %c${rawTitle}\n${isBanned.message}\n` +
-                            `Profile Link  : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
+							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
                             'color: #17f502; font-weight: bold;',
-                            // style groups for message fields (cặp đôi liên tục)
+                            // style groups for message fields
                             'color: gray;', 'color: gold; font-weight: bold;',
                             'color: gray;', 'color: cyan;',
                             'color: gray;', 'color: orange;',
                             'color: gray;', 'color: lightgreen;',
                             'color: gray;', 'color: pink;',
+							// has avatar
+							'color: gray;', 'color: #ff96f6;',
                             // profile link
-                            'color: orange;');
+                            'color: gray;', 'color: orange;');
 
                     }
 
