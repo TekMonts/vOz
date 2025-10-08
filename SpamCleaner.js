@@ -2,9 +2,9 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      4.5
-// @description  Spam cleaning tool for voz.vn - Optimized with regex, concurrency limits, retries
-// @match        https://voz.vn/*
+// @version      5.0
+// @description  Spam cleaning tool for voz.vn - Optimized logics, add more keywords
+// @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // ==/UserScript==
@@ -57,7 +57,7 @@
 
     // Default spam keywords and usernames (fallback if API fails)
     let spamKeywords = ["cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo"];
-    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "cakhia", "review", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", ".com", "capsule", "review", "cbd", "buyold", "supply", "fm88"];
+    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "k9cc", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", ".com", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
 
     // Precompile regex for spam checks (Unicode-safe + punctuation-safe)
 	let spamKeywordRegex;
@@ -65,32 +65,22 @@
 	
 	function compileSpamRegex() {
 		const safeArr = (arr) => Array.isArray(arr) ? arr : [];
-		
 		const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		
-		const kwList = safeArr(spamKeywords);
-		const unList = safeArr(spamUserName);
 		
 		const uniq = (arr) => [...new Set(arr.map(s => (s || '').trim()).filter(Boolean))];
 		const byLenDesc = (a, b) => b.length - a.length;
 		
-		const escapedKeywords = uniq(kwList).sort(byLenDesc).map(escapeRegex);
-		const escapedUsernames = uniq(unList).sort(byLenDesc).map(escapeRegex);
+		const kwList = uniq(safeArr(spamKeywords)).sort(byLenDesc).map(escapeRegex);
+		const unList = uniq(safeArr(spamUserName)).sort(byLenDesc).map(escapeRegex);
 		
-		const W = '[\\p{L}\\p{N}_]';
-		const kwAlt = escapedKeywords.join('|');
-		const unAlt = escapedUsernames.join('|');
+		const kwAlt = kwList.join('|');
+		const unAlt = unList.join('|');
 		
-		try {
-			spamKeywordRegex  = new RegExp(`(?<!${W})(?:${kwAlt})(?!${W})`, 'iu');
-			spamUsernameRegex = new RegExp(`(?<!${W})(?:${unAlt})(?!${W})`, 'iu');
-		} catch {
-			const left  = '(^|[^\\p{L}\\p{N}_])';
-			const right = '(?=$|[^\\p{L}\\p{N}_])';
-			spamKeywordRegex  = new RegExp(`${left}(?:${kwAlt})${right}`, 'iu');
-			spamUsernameRegex = new RegExp(`${left}(?:${unAlt})${right}`, 'iu');
-		}
+		// ✅ match substring anywhere, case-insensitive + unicode-safe
+		spamKeywordRegex  = new RegExp(`(${kwAlt})`, 'iu');
+		spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
 	}
+
 
     // Store the default number of keywords to check when updating.
     const defaultSpamKeywordsCount = spamKeywords.length;
@@ -219,23 +209,6 @@
             return result.success;
         }
     };
-
-    /**
-     * Load spam keywords from API (with fallback to defaults)
-     */
-    async function loadSpamKeywordsFromAPI() {
-        const appKey = storageManager.get(SPAM_KEYWORDS_KEY);
-        if (!appKey) return { spamKeywords, spamUserName };
-
-        const loadedKeywords = await apiManager.getValue(appKey, 'spam_keywords', spamKeywords);
-        const loadedUsernames = await apiManager.getValue(appKey, 'spam_usernames', spamUserName);
-
-        spamKeywords = loadedKeywords;
-        spamUserName = loadedUsernames;
-        compileSpamRegex();  // Recompile regex after loading
-
-        return { spamKeywords, spamUserName };
-    }
 
     /**
      * Ignore list manager.
@@ -399,7 +372,10 @@
          * @returns {Promise<Array>} The updated list of spam keywords
          */
         async getSpamKeywords() {
+			this.extendedKeywords = storageManager.get(SPAM_KEYWORDS_KEY);
             if (this.extendedKeywords && this.extendedKeywords.length > defaultSpamKeywordsCount) {
+				spamKeywords = this.extendedKeywords;
+				compileSpamRegex();
                 return this.extendedKeywords;
             }
 
@@ -432,7 +408,9 @@
                 }
 
                 this.extendedKeywords = Array.from(uniqueHosts);
-                compileSpamRegex();  // Recompile after extension
+				storageManager.set(SPAM_KEYWORDS_KEY, this.extendedKeywords)
+				spamKeywords = this.extendedKeywords;
+				compileSpamRegex();  // Recompile after extension
                 return this.extendedKeywords;
             } catch (error) {
                 console.error(`Failed to load content from ${url}:`, error);
@@ -610,7 +588,7 @@
 
                 if (data.status === 'ok') {
                     spamCount++;
-                    spamUserIds.add(userId);
+                    spamUserIds.add(String(userId));
                     spamList.push(`${username} - ${finalKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
                     logMessage(`%c${username}: ${data.message}`, ['background: #02f55b; color: white; padding: 2px;']);
                     return {
@@ -1129,6 +1107,10 @@
                     console.error(`Failed to fetch data for ID: ${currentId}`);
                     return;
                 }
+				// Normalize + strip helper
+				const norm = (s) => (s || '')
+					.normalize('NFKC')
+					.replace(/[\u200B\u200C\u200D\uFEFF]/g, ''); // zero-width
 
                 const data = await result.response.json();
                 if (data.status === "ok") {
@@ -1152,6 +1134,10 @@
                     let isSpam = false;
                     let matchedKeyword = null;
 
+					const candidateName = norm(rawTitle || title);
+					if (spamUsernameRegex.test(candidateName)) {
+						matchedKeyword = candidateName.match(spamUsernameRegex)[0];
+					}
                     if (cleanedContent) {
                         logMessage(
                             `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
@@ -1173,22 +1159,12 @@
                             'color: yellow; font-family: monospace;']
 							);
 
-                        // Check for spam keywords in the username using regex
-                        if (spamUsernameRegex.test(title)) {
-                            matchedKeyword = title.match(spamUsernameRegex)[0];
-                        }
-
                         // If not found in the username, check within the content
                         if (!matchedKeyword && spamKeywordRegex.test(cleanedContent)) {
                             matchedKeyword = cleanedContent.match(spamKeywordRegex)[0];
                         }
 
-                        if (matchedKeyword) {
-                            logMessage(`User %c${rawTitle}%c detected as spammer based on keyword %c${matchedKeyword}%c.`,
-                                ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-                            isSpam = true;
-                            await spamManager.processSpamUser(currentId, rawTitle, matchedKeyword, extendedKeywords);
-                        } else if (websiteRegex.test(cleanedContent)) {
+                        if (websiteRegex.test(cleanedContent)) {
                             matchedKeyword = cleanedContent.match(websiteRegex)[1];
                             logMessage(`User %c${rawTitle}%c detected as spammer based on Website %c${matchedKeyword}%c.\nPlease review and consider to ban this user!`,
                                 ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', 'color: yellow; font-weight: bold; padding: 2px;']);
@@ -1212,7 +1188,12 @@
                             // profile link
                             'color: gray;', 'color: orange;']);
                     }
-
+					if (matchedKeyword) {
+                        logMessage(`User %c${rawTitle}%c detected as spammer based on keyword %c${matchedKeyword}%c.`,
+                            ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
+                        isSpam = true;
+                        await spamManager.processSpamUser(currentId, rawTitle, matchedKeyword, extendedKeywords);
+                    }
                     // If no spam is detected in the profile, check the recent content
                     if (!isSpam) {
                         if (await spamManager.checkRecentContent(currentId, rawTitle, extendedKeywords)) {
@@ -1271,42 +1252,55 @@
         try {
             // Build ID sets
             const reviewBanIds = new Set(reviewBan
-                .map(x => {
-                    const m = x.match(/\/u\/(\d+)/);
-                    return m ? m[1] : null;
-                })
-                .filter(Boolean)
-            );
+				.map(x => {
+					const m = x.match(/\/u\/(\d+)/);
+					return m ? m[1] : null;
+				})
+				.filter(Boolean)
+			);
+			const needsReviewIds = new Set(
+				(spamList || [])
+				.filter(item => item.includes("recent_content"))
+				.map(item => (item.match(/\/u\/(\d+)/) || [])[1])
+				.filter(Boolean)
+				.map(String)
+			);
 
-            // Deduplicate candidate arrays by ID (keep first occurrence)
-            const uniqActive = new Map();
-            for (const item of activeUnder10) {
-                if (!uniqActive.has(item.id)) uniqActive.set(item.id, item);
-            }
-            const uniqSenior = new Map();
-            for (const item of seniorMembers) {
-                if (!uniqSenior.has(item.id)) uniqSenior.set(item.id, item);
-            }
+			
+			// Deduplicate candidate arrays by ID (keep first occurrence)
+			const uniqActive = new Map();
+			for (const item of activeUnder10) {
+				if (!uniqActive.has(item.id)) uniqActive.set(item.id, item);
+			}
+			const uniqSenior = new Map();
+			for (const item of seniorMembers) {
+				if (!uniqSenior.has(item.id)) uniqSenior.set(item.id, item);
+			}
+			
+			// Exclude banned (current run + pre-existing)
+			const isExcluded = (id) => spamUserIds.has(id) || bannedBeforeSet.has(id);
+			
+			// ✅ Priority: ReviewBan > Senior > Active<10'
+			const chosenSenior = [];
+			for (const item of uniqSenior.values()) {
+				if (isExcluded(item.id)) continue;
+				if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id)) continue;
+				chosenSenior.push(item);
+			}
+			
+			const chosenActive = [];
+			for (const item of uniqActive.values()) {
+				if (isExcluded(item.id)) continue;
+				if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id)) continue;
+				// Exclude anything already in Senior
+				if (chosenSenior.find(a => a.id === item.id)) continue;
+				chosenActive.push(item);
+			}
+			
+			// ✅ Sort active members and senior members ascending by minutes (shortest active time first)
+			chosenActive.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
+			chosenSenior.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
 
-            // Exclude banned (current run + pre-existing)
-            const isExcluded = (id) => spamUserIds.has(id) || bannedBeforeSet.has(id);
-
-            // Priority: ReviewBan > Active<10' > Senior
-            const chosenActive = [];
-            for (const item of uniqActive.values()) {
-                if (isExcluded(item.id)) continue;
-                if (reviewBanIds.has(item.id)) continue;
-                chosenActive.push(item);
-            }
-
-            const chosenSenior = [];
-            for (const item of uniqSenior.values()) {
-                if (isExcluded(item.id)) continue;
-                if (reviewBanIds.has(item.id)) continue;
-                // Also exclude anything already in Active<10'
-                if (chosenActive.find(a => a.id === item.id)) continue;
-                chosenSenior.push(item);
-            }
 
             // Pretty print
             if (chosenActive.length > 0) {
@@ -1636,10 +1630,9 @@
     async function init() {
         if (window.location.hostname === 'voz.vn') {
             // Request app key if not available
-            if (!storageManager.get(IGNORE_LIST_KEY) || !storageManager.get(LATEST_RANGE_KEY) || !storageManager.get(SPAM_KEYWORDS_KEY)) {
+            if (!storageManager.get(IGNORE_LIST_KEY) || !storageManager.get(LATEST_RANGE_KEY)) {
                 var ignoreAppKey = prompt("// Enter app key for the ignore list:");
                 var rangeAppKey = prompt("// Enter app key for the processing range:");
-                var spamKeywordsAppKey = prompt("// Enter app key for spam keywords:");
 
                 if (ignoreAppKey) {
                     storageManager.set(IGNORE_LIST_KEY, ignoreAppKey);
@@ -1648,14 +1641,9 @@
                 if (rangeAppKey) {
                     storageManager.set(LATEST_RANGE_KEY, rangeAppKey);
                 }
-
-                if (spamKeywordsAppKey) {
-                    storageManager.set(SPAM_KEYWORDS_KEY, spamKeywordsAppKey);
-                }
             }
 
             ignoreList = await ignoreListManager.getIgnoreList() || [];
-            await loadSpamKeywordsFromAPI();  // Load keywords from API
             compileSpamRegex();  // Initial compile
 
             initializeBanListeners();
