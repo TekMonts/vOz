@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      4.4
-// @description  Spam cleaning tool for voz.vn - Optimized with regex, concurrency limits, retries, and clickable logs
+// @version      4.5
+// @description  Spam cleaning tool for voz.vn - Optimized with regex, concurrency limits, retries
 // @match        https://voz.vn/*
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -41,7 +41,7 @@
     let ignoreList = [];
     // ===== Added: Advanced reporting lists (keep original logic intact) =====
     // Temporary containers for additional lists
-    let seniorMembers = [];          // [{ id, username }]
+    let seniorMembers = [];          // [{ id, username, minutes }]
     let activeUnder10 = [];          // [{ id, username, minutes }]
     // Track IDs to enforce global uniqueness + easy exclusion
     let spamUserIds = new Set();     // spammers banned in current run
@@ -57,7 +57,7 @@
 
     // Default spam keywords and usernames (fallback if API fails)
     let spamKeywords = ["cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo"];
-    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "lifestyle", "pvait", "usam", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", ".com", "capsule", "review", "cbd", "buyold", "supply", "fm88"];
+    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "cakhia", "review", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", ".com", "capsule", "review", "cbd", "buyold", "supply", "fm88"];
 
     // Precompile regex for spam checks (Unicode-safe + punctuation-safe)
 	let spamKeywordRegex;
@@ -786,11 +786,13 @@
      * @param {string} message - The message with %c placeholders
      * @param {array} styles - Array of style strings for each %c
      */
-    function logMessage(message, styles = [], linker = null) {
+    function logMessage(message, styles = [], linker) {
 		const styleArray = Array.isArray(styles) ? styles : [];
-		console.log(message, ...styleArray);
+
 		if (linker) {
-			console.log(linker);
+			console.log(message, ...styleArray, linker);
+		} else {
+			console.log(message, ...styleArray);
 		}
 	}
 
@@ -1152,18 +1154,24 @@
 
                     if (cleanedContent) {
                         logMessage(
-							`Processing user : %c${rawTitle}%c\n` + 
-							`Has avatar      : %c${isBanned.hasAvatar}%c\n` +
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
+							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` +
 							`HTML content    ↓\n%c${cleanedContent}`,
-							[
-								'color: #17f502; font-weight: bold;', // rawTitle
-								'color: gray;',                       // After rawTitle
-								'color: gold; font-weight: bold;',    // hasAvatar
-								'color: gray;',                      // After hasAvatar
-								'color: yellow; font-family: monospace;' // cleanedContent
-							],
-							`${VOZ_BASE_URL}/u/${currentId}/#about`
-						);
+                            ['color: #17f502; font-weight: bold;',
+                            // style groups for message fields
+                            'color: gray;', 'color: gold; font-weight: bold;',
+                            'color: gray;', 'color: cyan;',
+                            'color: gray;', 'color: orange;',
+                            'color: gray;', 'color: lightgreen;',
+                            'color: gray;', 'color: pink;',
+							// has avatar
+							'color: gray;', 'color: #ff96f6;',
+                            // profile link
+                            'color: gray;', 'color: orange;',
+                            // cleaned content
+                            'color: yellow; font-family: monospace;']
+							);
 
                         // Check for spam keywords in the username using regex
                         if (spamUsernameRegex.test(title)) {
@@ -1188,18 +1196,21 @@
                             reviewBan.push(`${rawTitle} - ${matchedKeyword}: ${VOZ_BASE_URL}/u/${currentId}/#about`);
                         }
                     } else {
-						if (!cleanedContent) {
-							logMessage(
-								`Processing user : %c${rawTitle}%c\n` + 
-								`Has avatar      : %c${isBanned.hasAvatar}%c`,
-								[
-									'color: #17f502; font-weight: bold;', // rawTitle
-									'color: gray;',                      // After rawTitle
-									'color: gold; font-weight: bold;',   // hasAvatar
-									'color: gray;'                       // After hasAvatar
-								],
-								`${VOZ_BASE_URL}/u/${currentId}/#about`
-							);
+                        logMessage(
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
+							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
+                            ['color: #17f502; font-weight: bold;',
+                            // style groups for message fields
+                            'color: gray;', 'color: gold; font-weight: bold;',
+                            'color: gray;', 'color: cyan;',
+                            'color: gray;', 'color: orange;',
+                            'color: gray;', 'color: lightgreen;',
+                            'color: gray;', 'color: pink;',
+							// has avatar
+							'color: gray;', 'color: #ff96f6;',
+                            // profile link
+                            'color: gray;', 'color: orange;']);
                     }
 
                     // If no spam is detected in the profile, check the recent content
@@ -1235,8 +1246,7 @@
 				logMessage(
 					`%c${usernamePart}: `,
 					[
-						'color: red; font-weight: bold;',
-						''
+						'color: red; font-weight: bold;'
 					],
 					linker
 				);
@@ -1307,7 +1317,7 @@
 						`%c${u.username}%c (${u.minutes} min(S): `,
 						[
 							'color: purple; font-weight: bold;',
-							''
+							'color: gold; font-weight: bold;'
 						],
 						linker
 					);
@@ -1325,7 +1335,7 @@
 						`%c${u.username}%c (${u.minutes} min(S): `,
 						[
 							'color: teal; font-weight: bold;',
-							''
+							'color: gold; font-weight: bold;'
 						],
 						linker
 					);
