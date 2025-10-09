@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      5.0
-// @description  Spam cleaning tool for voz.vn - Optimized logics, add more keywords
+// @version      5.1
+// @description  Spam cleaning tool for voz.vn - array transform logic fix
 // @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -62,20 +62,20 @@
     // Precompile regex for spam checks (Unicode-safe + punctuation-safe)
 	let spamKeywordRegex;
 	let spamUsernameRegex;
-	
+
 	function compileSpamRegex() {
-		const safeArr = (arr) => Array.isArray(arr) ? arr : [];
+		const toArr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
 		const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		
+
 		const uniq = (arr) => [...new Set(arr.map(s => (s || '').trim()).filter(Boolean))];
 		const byLenDesc = (a, b) => b.length - a.length;
-		
-		const kwList = uniq(safeArr(spamKeywords)).sort(byLenDesc).map(escapeRegex);
-		const unList = uniq(safeArr(spamUserName)).sort(byLenDesc).map(escapeRegex);
-		
+
+		const kwList = uniq(toArr(spamKeywords)).sort(byLenDesc).map(escapeRegex);
+		const unList = uniq(toArr(spamUserName)).sort(byLenDesc).map(escapeRegex);
+
 		const kwAlt = kwList.join('|');
 		const unAlt = unList.join('|');
-		
+
 		// ✅ match substring anywhere, case-insensitive + unicode-safe
 		spamKeywordRegex  = new RegExp(`(${kwAlt})`, 'iu');
 		spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
@@ -459,15 +459,14 @@
                     }
 
                     if (contentType === 'profile post' || contentType === 'thread') {
-                        if (urlRegex.test(titleText)) {
-                            logMessage(`User %c${username}%c detected as spammer. Title contains URL: %c${titleText}%c`,
-                                ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-                            return true;
-                        }
-
                         if (spamKeywordRegex.test(titleText)) {
                             const keyword = titleText.match(spamKeywordRegex)[0];
                             logMessage(`User %c${username}%c detected as spammer. Title contains keyword: %c${keyword}%c`,
+                                ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
+                            return true;
+                        }
+						if (urlRegex.test(titleText)) {
+                            logMessage(`User %c${username}%c detected as spammer. Title contains URL: %c${titleText}%c`,
                                 ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
                             return true;
                         }
@@ -1042,7 +1041,7 @@
                     if (timeDiff) {
                         message += `%cTime Diff       : %c${timeDiff}\n`;
                     }
-					
+
                     if (viewingInfo) {
                         message += `%cActivity        : %c${viewingInfo}`;
                     } else {
@@ -1140,7 +1139,7 @@
 					}
                     if (cleanedContent) {
                         logMessage(
-                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` +
 							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
 							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` +
 							`HTML content    ↓\n%c${cleanedContent}`,
@@ -1159,21 +1158,20 @@
                             'color: yellow; font-family: monospace;']
 							);
 
-                        // If not found in the username, check within the content
-                        if (!matchedKeyword && spamKeywordRegex.test(cleanedContent)) {
+                        // Check within the content
+                        if (spamKeywordRegex.test(cleanedContent)) {
                             matchedKeyword = cleanedContent.match(spamKeywordRegex)[0];
                         }
 
                         if (websiteRegex.test(cleanedContent)) {
-                            matchedKeyword = cleanedContent.match(websiteRegex)[1];
-                            logMessage(`User %c${rawTitle}%c detected as spammer based on Website %c${matchedKeyword}%c.\nPlease review and consider to ban this user!`,
+                            let mKeyword = cleanedContent.match(websiteRegex)[1];
+                            logMessage(`User %c${rawTitle}%c detected as spammer based on Website %c${mKeyword}%c.\nPlease review and consider to ban this user!`,
                                 ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', 'color: yellow; font-weight: bold; padding: 2px;']);
-                            isSpam = true;
-                            reviewBan.push(`${rawTitle} - ${matchedKeyword}: ${VOZ_BASE_URL}/u/${currentId}/#about`);
+                            reviewBan.push(`${rawTitle} - ${mKeyword}: ${VOZ_BASE_URL}/u/${currentId}/#about`);
                         }
                     } else {
                         logMessage(
-                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` +
 							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
 							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
                             ['color: #17f502; font-weight: bold;',
@@ -1266,7 +1264,7 @@
 				.map(String)
 			);
 
-			
+
 			// Deduplicate candidate arrays by ID (keep first occurrence)
 			const uniqActive = new Map();
 			for (const item of activeUnder10) {
@@ -1276,10 +1274,10 @@
 			for (const item of seniorMembers) {
 				if (!uniqSenior.has(item.id)) uniqSenior.set(item.id, item);
 			}
-			
+
 			// Exclude banned (current run + pre-existing)
 			const isExcluded = (id) => spamUserIds.has(id) || bannedBeforeSet.has(id);
-			
+
 			// ✅ Priority: ReviewBan > Senior > Active<10'
 			const chosenSenior = [];
 			for (const item of uniqSenior.values()) {
@@ -1287,7 +1285,7 @@
 				if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id)) continue;
 				chosenSenior.push(item);
 			}
-			
+
 			const chosenActive = [];
 			for (const item of uniqActive.values()) {
 				if (isExcluded(item.id)) continue;
@@ -1296,7 +1294,7 @@
 				if (chosenSenior.find(a => a.id === item.id)) continue;
 				chosenActive.push(item);
 			}
-			
+
 			// ✅ Sort active members and senior members ascending by minutes (shortest active time first)
 			chosenActive.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
 			chosenSenior.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
@@ -1322,7 +1320,7 @@
 
 			if (chosenSenior.length > 0) {
 				logMessage('%cSenior Members:%c', ['background: teal; color: white; padding: 2px;', '']);
-				
+
 				for (const u of chosenSenior) {
 					const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
 					logMessage(
