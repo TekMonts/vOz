@@ -1306,7 +1306,7 @@
 				for (const u of chosenActive) {
 					const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
 					logMessage(
-						`%c${u.username}%c (${u.minutes} min(S): `,
+						`%c${u.username}%c (${u.minutes} min): `,
 						[
 							'color: purple; font-weight: bold;',
 							'color: gold; font-weight: bold;'
@@ -1324,7 +1324,7 @@
 				for (const u of chosenSenior) {
 					const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
 					logMessage(
-						`%c${u.username}%c (${u.minutes} min(S): `,
+						`%c${u.username}%c (${u.minutes} min): `,
 						[
 							'color: teal; font-weight: bold;',
 							'color: gold; font-weight: bold;'
