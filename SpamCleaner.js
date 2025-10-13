@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      5.1
-// @description  Spam cleaning tool for voz.vn - array transform logic fix
+// @version      5.5
+// @description  Spam cleaning tool for voz.vn - added content check, fix logic detect website in both ban list and reviewban list
 // @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -446,7 +446,10 @@
 
                 const contentRegex = /<li[^>]*?>[\s\S]*?<h3[^>]*?>\s*<a[^>]*?>((?:<span[^>]*?>[^<]*?<\/span>\s*)*)(.*?)<\/a>[\s\S]*?<li>([^<]+)<\/li>/gi;
                 const matches = [...content.matchAll(contentRegex)];
-
+				//to review list if user has content In about page
+				if (matches.length > 0) {
+					addToReview(userId, username);
+				}
                 for (const match of matches) {
                     const titleText = match[2].replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, '').trim();
                     const contentType = match[3].trim().toLowerCase();
@@ -772,7 +775,69 @@
 			console.log(message, ...styleArray);
 		}
 	}
+	
+	/**
+	 * Pretty-print a list of users in console with styled colors.
+	 * - Displays section header with background color.
+	 * - Each user line shows username, active minutes, and content status.
+	 *
+	 * @param {string} label  - Section title (e.g. "Active < 10 min", "Senior Members").
+	 * @param {string} color  - Base color for section and username text.
+	 * @param {Array}  users  - List of user objects [{ id, username, minutes, hasContent }].
+	 */
+	function printUsers(label, color, users) {
+	    if (users.length === 0) {
+	        logMessage(`${label}: none.`);
+	        return;
+	    }
 
+	    logMessage(`%c${label}:%c`, [`background: ${color}; color: white; padding: 2px;`, '']);
+	    for (const u of users) {
+	        const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
+	        const hasContentColor = u.hasContent ? 'red' : 'green';
+	        const hasContentText = u.hasContent ? 'has content' : '';
+	        logMessage(
+				`%c${u.username}%c (${u.minutes} min) %c${hasContentText}`,
+	            [
+					`color: ${color}; font-weight: bold;`,
+	                'color: gold; font-weight: bold;',
+					`color: ${hasContentColor}; font-weight: bold;`
+	            ],
+	            linker
+			);
+	    }
+	}
+	
+	/**
+	* Utility function for managing review candidates in the
+	* "seniorMembers" and "activeUnder10" lists.
+	*
+	* @param {string|number} userID   - Unique ID of the user.
+	* @param {string} userName        - Display name of the user.
+	*/
+	function addToReview(userID, userName) {
+	    const idStr = userID.toString();
+
+	    // Find user in both lists
+	    const inActive = activeUnder10.find(u => u.id === idStr);
+	    const inSenior = seniorMembers.find(u => u.id === idStr);
+
+	    if (inActive || inSenior) {
+	        // Mark hasContent = true on both lists where applicable
+	        if (inActive)
+	            inActive.hasContent = true;
+	        if (inSenior)
+	            inSenior.hasContent = true;
+	    } else {
+	        // Not found anywhere -> add to seniorMembers
+	        seniorMembers.push({
+	            id: idStr,
+	            username: userName,
+	            minutes: -1,
+	            hasContent: true
+	        });
+	    }
+	}
 
     /**
      * Remove HTML tags from a string
@@ -946,8 +1011,7 @@
                     return {
                         username: 'Not Found',
                         status: false,
-                        message: '',
-                        hasAvatar: false
+                        message: ''
                     };
                 }
                 const data = await result.response.json();
@@ -962,11 +1026,7 @@
                     let lastSeenText = '';
                     let timeDiff = '';
                     let viewingInfo = '';
-                    let hasAvatar = false;
                     let userTitle = '';
-
-                    // Check for avatar (not default avatar)
-                    hasAvatar = !fullContent.includes('avatar--default');
 
                     // Extract userTitle
                     const userTitleMatch = fullContent.match(/<span class="userTitle"[^>]*>([^<]*)<\/span>/i);
@@ -1010,10 +1070,10 @@
                     try {
                         const diffMin = (joinedTimestamp && lastSeenTimestamp) ? Math.abs((lastSeenTimestamp - joinedTimestamp) / 60000) : null;
                         if (diffMin !== null && diffMin <= 10) {
-                            activeUnder10.push({ id: currentId.toString(), username: username || '', minutes: Math.round(diffMin) });
+                            activeUnder10.push({ id: currentId.toString(), username: username || '', minutes: Math.round(diffMin), hasContent: false });
                         }
                         if (userTitle && /senior\s*member/i.test(userTitle)) {
-                            seniorMembers.push({ id: currentId.toString(), username: username || '', minutes: Math.round(diffMin) });
+                            seniorMembers.push({ id: currentId.toString(), username: username || '', minutes: Math.round(diffMin), hasContent: false });
                         }
                     } catch (e) { /* non-fatal */ }
                     // ======================================================
@@ -1051,16 +1111,14 @@
                     return {
                         username,
                         status: isBanned,
-                        message,
-                        hasAvatar
+                        message
                     };
                 } else {
                     console.warn(`Unexpected response for ID ${currentId}:`, data);
                     return {
                         username: 'Not Found',
                         status: false,
-                        message: '',
-                        hasAvatar: false
+                        message: ''
                     };
                 }
             } catch (error) {
@@ -1068,8 +1126,7 @@
                 return {
                     username: 'Not Found',
                     status: false,
-                    message: '',
-                    hasAvatar: false
+                    message: ''
                 };
             }
         }
@@ -1079,6 +1136,7 @@
             const match = content.match(regex);
             return match ? parseInt(match[1]) * 1000 : null;
         }
+		
 
         /**
          * Handle a single user
@@ -1140,7 +1198,6 @@
                     if (cleanedContent) {
                         logMessage(
                             `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` +
-							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
 							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` +
 							`HTML content    ↓\n%c${cleanedContent}`,
                             ['color: #17f502; font-weight: bold;',
@@ -1150,20 +1207,19 @@
                             'color: gray;', 'color: orange;',
                             'color: gray;', 'color: lightgreen;',
                             'color: gray;', 'color: pink;',
-							// has avatar
-							'color: gray;', 'color: #ff96f6;',
                             // profile link
                             'color: gray;', 'color: orange;',
                             // cleaned content
                             'color: yellow; font-family: monospace;']
 							);
-
+						//to review list if user has content In about page
+						addToReview(currentId, candidateName);
                         // Check within the content
                         if (spamKeywordRegex.test(cleanedContent)) {
                             matchedKeyword = cleanedContent.match(spamKeywordRegex)[0];
                         }
 
-                        if (websiteRegex.test(cleanedContent)) {
+                        if (!matchedKeyword && websiteRegex.test(cleanedContent)) {
                             let mKeyword = cleanedContent.match(websiteRegex)[1];
                             logMessage(`User %c${rawTitle}%c detected as spammer based on Website %c${mKeyword}%c.\nPlease review and consider to ban this user!`,
                                 ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', 'color: yellow; font-weight: bold; padding: 2px;']);
@@ -1172,7 +1228,6 @@
                     } else {
                         logMessage(
                             `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` +
-							`Has avatar      : %c${isBanned.hasAvatar}\n%c` +
 							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
                             ['color: #17f502; font-weight: bold;',
                             // style groups for message fields
@@ -1181,8 +1236,6 @@
                             'color: gray;', 'color: orange;',
                             'color: gray;', 'color: lightgreen;',
                             'color: gray;', 'color: pink;',
-							// has avatar
-							'color: gray;', 'color: #ff96f6;',
                             // profile link
                             'color: gray;', 'color: orange;']);
                     }
@@ -1301,40 +1354,8 @@
 
 
             // Pretty print
-            if (chosenActive.length > 0) {
-				logMessage('%cActive time < 10\' (minutes):%c', ['background: purple; color: white; padding: 2px;', '']);
-				for (const u of chosenActive) {
-					const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
-					logMessage(
-						`%c${u.username}%c (${u.minutes} min): `,
-						[
-							'color: purple; font-weight: bold;',
-							'color: gold; font-weight: bold;'
-						],
-						linker
-					);
-				}
-			} else {
-                logMessage('Active time < 10\' (minutes): none.');
-            }
-
-			if (chosenSenior.length > 0) {
-				logMessage('%cSenior Members:%c', ['background: teal; color: white; padding: 2px;', '']);
-
-				for (const u of chosenSenior) {
-					const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
-					logMessage(
-						`%c${u.username}%c (${u.minutes} min): `,
-						[
-							'color: teal; font-weight: bold;',
-							'color: gold; font-weight: bold;'
-						],
-						linker
-					);
-				}
-			} else {
-                logMessage('Senior Members: none.');
-            }
+            printUsers("Active time < 10' (minutes)", 'purple', chosenActive);
+			printUsers('Senior Members', 'teal', chosenSenior);
         } catch (e) {
             console.warn('Failed to build custom lists:', e);
         }
