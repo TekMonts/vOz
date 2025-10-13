@@ -787,7 +787,7 @@
 	 */
 	function printUsers(label, color, users) {
 	    if (users.length === 0) {
-	        logMessage(`${label}: none.`);
+	        logMessage(`%c${label}: none.`, [`background: ${color}; color: white; padding: 2px;`]);
 	        return;
 	    }
 
