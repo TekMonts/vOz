@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      5.8
-// @description  Spam cleaning tool for voz.vn - remove un-uses log
+// @version      5.9
+// @description  Spam cleaning tool for voz.vn - Spam keyword regex logic fix
 // @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -65,21 +65,25 @@
 	let spamUsernameRegex;
 
 	function compileSpamRegex() {
-		const toArr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
-		const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	    const toArr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
+	    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-		const uniq = (arr) => [...new Set(arr.map(s => (s || '').trim()).filter(Boolean))];
-		const byLenDesc = (a, b) => b.length - a.length;
+	    const uniq = (arr) => [...new Set(arr.map(s => (s || '').trim()).filter(Boolean))];
+	    const byLenDesc = (a, b) => b.length - a.length;
 
-		const kwList = uniq(toArr(spamKeywords)).sort(byLenDesc).map(escapeRegex);
-		const unList = uniq(toArr(spamUserName)).sort(byLenDesc).map(escapeRegex);
+	    const filterValid = (arr) => arr.filter(s => {
+	        const cleaned = s.trim();
+	        return cleaned.length >= 3 && /[a-z0-9]/i.test(cleaned);
+	    });
 
-		const kwAlt = kwList.join('|');
-		const unAlt = unList.join('|');
+	    const kwList = filterValid(uniq(toArr(spamKeywords))).sort(byLenDesc).map(escapeRegex);
+	    const unList = filterValid(uniq(toArr(spamUserName))).sort(byLenDesc).map(escapeRegex);
 
-		// ✅ match substring anywhere, case-insensitive + unicode-safe
-		spamKeywordRegex  = new RegExp(`(${kwAlt})`, 'iu');
-		spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
+	    const kwAlt = kwList.length > 0 ? kwList.join('|') : 'xxxxxxxxx_never_match';
+	    const unAlt = unList.length > 0 ? unList.join('|') : 'xxxxxxxxx_never_match';
+
+	    spamKeywordRegex = new RegExp(`\\b(${kwAlt})\\b`, 'iu');
+	    spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
 	}
 
 
@@ -373,15 +377,22 @@
          * @returns {Promise<Array>} The updated list of spam keywords
          */
         async getSpamKeywords() {
-			const storedKeywords = storageManager.get(SPAM_KEYWORDS_KEY) || [];
+            const storedKeywords = storageManager.get(SPAM_KEYWORDS_KEY) || [];
+
+            const validStored = Array.isArray(storedKeywords)
+                 ? storedKeywords.filter(k => typeof k === 'string' && k.length >= 3)
+                 : [];
+
             const uniqueHosts = new Set([
                         ...spamKeywords,
-                        ...storedKeywords,
+                        ...validStored,
                     ]);
-			this.extendedKeywords = Array.from(uniqueHosts) ;
+
+            this.extendedKeywords = Array.from(uniqueHosts);
+
             if (this.extendedKeywords && this.extendedKeywords.length > defaultSpamKeywordsCount) {
-				spamKeywords = this.extendedKeywords;
-				compileSpamRegex();
+                spamKeywords = this.extendedKeywords;
+                compileSpamRegex();
                 return this.extendedKeywords;
             }
 
@@ -396,6 +407,7 @@
 
                 const text = await result.response.text();
                 const lines = text.split('\n');
+
                 for (let line of lines) {
                     line = line.trim();
                     if (line.startsWith('0.0.0.0')) {
@@ -403,18 +415,25 @@
                         if (hostPart) {
                             const parts = hostPart.split('.');
                             if (parts.length > 1) {
-                                // Get the second-level domain (e.g., example.com from sub.example.com).
                                 const domain = parts.slice(-2).join('.');
-                                uniqueHosts.add(domain);
+
+                                if (domain.length >= 5 &&
+                                    /^[a-z0-9.-]+$/i.test(domain) &&
+                                    !domain.startsWith('.') &&
+                                    !domain.endsWith('.')) {
+                                    uniqueHosts.add(domain);
+                                }
                             }
                         }
                     }
                 }
 
-                this.extendedKeywords = Array.from(uniqueHosts);
-				storageManager.set(SPAM_KEYWORDS_KEY, this.extendedKeywords)
-				spamKeywords = this.extendedKeywords;
-				compileSpamRegex();  // Recompile after extension
+                this.extendedKeywords = Array.from(uniqueHosts).filter(k => k.length >= 3);
+
+                storageManager.set(SPAM_KEYWORDS_KEY, this.extendedKeywords);
+                spamKeywords = this.extendedKeywords;
+                compileSpamRegex();
+
                 return this.extendedKeywords;
             } catch (error) {
                 console.error(`Failed to load content from ${url}:`, error);
@@ -983,6 +1002,12 @@
         const extendedKeywords = await spamManager.getSpamKeywords();
         logMessage(`Process to clean all spamer has ID from %c${fromID}%c to %c${toID}%c.`,
             ['background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;', '']);
+		// Sau khi parse xong, check có gì lạ không
+		const suspicious = extendedKeywords.filter(k => k.length < 3 || !/[a-z0-9]/i.test(k));
+		if (suspicious.length > 0) {
+			console.warn('⚠️ Suspicious keywords detected:', suspicious);
+			console.warn('All keyword:', extendedKeywords);
+		}
         let firstErrorId = null;
         const batchSize = 5;
         const delay = 200;
