@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      5.6
-// @description  Spam cleaning tool for voz.vn - add more keywords/log details
+// @version      5.7
+// @description  Spam cleaning tool for voz.vn - add more keywords/logic fix
 // @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -57,7 +57,7 @@
     const urlRegex = /\bhttps?:\/\/[^\s<]+/i;
 
     // Default spam keywords and usernames (fallback if API fails)
-    let spamKeywords = ["temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo"];
+    let spamKeywords = ["go8", "temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo"];
     let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "k9cc", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", ".com", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
 
     // Precompile regex for spam checks (Unicode-safe + punctuation-safe)
@@ -373,7 +373,12 @@
          * @returns {Promise<Array>} The updated list of spam keywords
          */
         async getSpamKeywords() {
-			this.extendedKeywords = storageManager.get(SPAM_KEYWORDS_KEY);
+			const storedKeywords = storageManager.get(SPAM_KEYWORDS_KEY) || [];
+            const uniqueHosts = new Set([
+                        ...spamKeywords,
+                        ...storedKeywords,
+                    ]);
+			this.extendedKeywords = Array.from(uniqueHosts) ;
             if (this.extendedKeywords && this.extendedKeywords.length > defaultSpamKeywordsCount) {
 				spamKeywords = this.extendedKeywords;
 				compileSpamRegex();
@@ -391,8 +396,6 @@
 
                 const text = await result.response.text();
                 const lines = text.split('\n');
-                const uniqueHosts = new Set(spamKeywords);
-
                 for (let line of lines) {
                     line = line.trim();
                     if (line.startsWith('0.0.0.0')) {
@@ -548,7 +551,8 @@
             }
 			const shouldDelDataKeyWorld = ["temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified"];
 
-			const shouldDelData = finalKW === 'recent_content' || !shouldDelDataKeyWorld.includes(tmpKeyword) ? '0' : '1';
+			const shouldDelData = finalKW === 'recent_content' && tmpKeyword && shouldDelDataKeyWorld.includes(tmpKeyword) ? '1' : '0';
+
 
 			tmpKeyword = '';
             const urlSubfix = finalKW === 'recent_content' ? 'recent-content' : 'about';
@@ -801,10 +805,11 @@
 	        const hasContentColor = u.hasContent ? 'red' : 'green';
 	        const hasContentText = u.hasContent ? 'has content' : '';
 	        logMessage(
-				`%c${u.username}:%c ${u.lastSeen} (${u.minutes} mins) %c${hasContentText}`,
+				`%c${u.username}:%c ${u.lastSeen} %c(${u.minutes}')%c ${hasContentText}`,
 	            [
 					`color: ${color}; font-weight: bold;`,
-	                'color: gold;',
+	                'color: cyan; font-weight: bold;',
+	                'background: green; color: white; padding: 3px;',
 					`color: ${hasContentColor}; font-weight: bold;`
 	            ],
 	            linker
@@ -978,7 +983,8 @@
         const extendedKeywords = await spamManager.getSpamKeywords();
         logMessage(`Process to clean all spamer has ID from %c${fromID}%c to %c${toID}%c.`,
             ['background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;', '']);
-
+		console.log('keywords:' + extendedKeywords);
+		console.log('spamKeywords:' + spamKeywords);
         let firstErrorId = null;
         const batchSize = 5;
         const delay = 200;
