@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      5.7
-// @description  Spam cleaning tool for voz.vn - add more keywords/logic fix
+// @version      5.8
+// @description  Spam cleaning tool for voz.vn - remove un-uses log
 // @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -983,8 +983,6 @@
         const extendedKeywords = await spamManager.getSpamKeywords();
         logMessage(`Process to clean all spamer has ID from %c${fromID}%c to %c${toID}%c.`,
             ['background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;', '']);
-		console.log('keywords:' + extendedKeywords);
-		console.log('spamKeywords:' + spamKeywords);
         let firstErrorId = null;
         const batchSize = 5;
         const delay = 200;
