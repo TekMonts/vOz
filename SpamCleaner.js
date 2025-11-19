@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      5.9
-// @description  Spam cleaning tool for voz.vn - Spam keyword regex logic fix
+// @version      6.0
+// @description  Spam cleaning tool for voz.vn - Logic fix on delete spammer content
 // @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -568,10 +568,9 @@
                     status: 'not_spam'
                 };
             }
-			const shouldDelDataKeyWorld = ["temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified"];
+			const shouldDelDataKeyWorld = ["temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified", "url", "recovery"];
 
-			const shouldDelData = finalKW === 'recent_content' && tmpKeyword && shouldDelDataKeyWorld.includes(tmpKeyword) ? '1' : '0';
-
+			const shouldDelData = finalKW !== 'recent_content' || (tmpKeyword && shouldDelDataKeyWorld.includes(tmpKeyword)) ? '1' : '0';
 
 			tmpKeyword = '';
             const urlSubfix = finalKW === 'recent_content' ? 'recent-content' : 'about';
