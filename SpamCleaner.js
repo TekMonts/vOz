@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      6.0
-// @description  Spam cleaning tool for voz.vn - Logic fix on delete spammer content
+// @version      6.1
+// @description  Spam cleaning tool for voz.vn - Logic fix on process spam keywords
 // @match        https://voz.vn/u/
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -57,8 +57,8 @@
     const urlRegex = /\bhttps?:\/\/[^\s<]+/i;
 
     // Default spam keywords and usernames (fallback if API fails)
-    let spamKeywords = ["go8", "temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo"];
-    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "k9cc", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", ".com", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
+    let spamKeywords = ["pg9", "go8", "temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo", "buy account", "old account"];
+    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "pg9", "k9cc", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", ".com", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
 
     // Precompile regex for spam checks (Unicode-safe + punctuation-safe)
 	let spamKeywordRegex;
@@ -68,12 +68,22 @@
 	    const toArr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
 	    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-	    const uniq = (arr) => [...new Set(arr.map(s => (s || '').trim()).filter(Boolean))];
+	    const uniq = (arr) => [
+	        ...new Set(
+	            arr.map(s => (s || '').trim())
+	            .filter(s => s.length > 0))
+	    ];
+
 	    const byLenDesc = (a, b) => b.length - a.length;
 
 	    const filterValid = (arr) => arr.filter(s => {
 	        const cleaned = s.trim();
-	        return cleaned.length >= 3 && /[a-z0-9]/i.test(cleaned);
+
+	        if (!/[a-z0-9]/i.test(cleaned)) {
+	            return true;
+	        }
+
+	        return cleaned.length >= 3;
 	    });
 
 	    const kwList = filterValid(uniq(toArr(spamKeywords))).sort(byLenDesc).map(escapeRegex);
@@ -84,6 +94,13 @@
 
 	    spamKeywordRegex = new RegExp(`\\b(${kwAlt})\\b`, 'iu');
 	    spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
+
+	    const singleLetters = kwList.concat(unList).filter(s => /^\\[a-z]$/i.test(s));
+	    if (singleLetters.length > 0) {
+	        console.warn('⚠️ Single letters detected:', singleLetters);
+	    }
+
+	    //console.log(`Compiled regex: ${kwList.length} keywords, ${unList.length} username patterns`);
 	}
 
 
@@ -376,11 +393,20 @@
          *
          * @returns {Promise<Array>} The updated list of spam keywords
          */
+
         async getSpamKeywords() {
             const storedKeywords = storageManager.get(SPAM_KEYWORDS_KEY) || [];
 
+            // Validate stored data
             const validStored = Array.isArray(storedKeywords)
-                 ? storedKeywords.filter(k => typeof k === 'string' && k.length >= 3)
+                 ? storedKeywords.filter(k => {
+                    if (typeof k !== 'string')
+                        return false;
+                    const cleaned = k.trim();
+                    if (!/[a-z0-9]/i.test(cleaned))
+                        return cleaned.length > 0;
+                    return cleaned.length >= 3;
+                })
                  : [];
 
             const uniqueHosts = new Set([
@@ -388,11 +414,7 @@
                         ...validStored,
                     ]);
 
-            this.extendedKeywords = Array.from(uniqueHosts);
-
-            if (this.extendedKeywords && this.extendedKeywords.length > defaultSpamKeywordsCount) {
-                spamKeywords = this.extendedKeywords;
-                compileSpamRegex();
+            if (this.extendedKeywords && this.extendedKeywords.length > spamKeywords.length) {
                 return this.extendedKeywords;
             }
 
@@ -401,7 +423,14 @@
                 const result = await apiManager.fetchWithErrorHandling(url);
 
                 if (!result.success) {
-                    this.extendedKeywords = [...spamKeywords];
+                    // Fallback
+                    this.extendedKeywords = Array.from(uniqueHosts).filter(k => {
+                        if (!/[a-z0-9]/i.test(k))
+                            return true;
+                        return k.length >= 3;
+                    });
+                    spamKeywords = this.extendedKeywords;
+                    compileSpamRegex();
                     return this.extendedKeywords;
                 }
 
@@ -417,10 +446,12 @@
                             if (parts.length > 1) {
                                 const domain = parts.slice(-2).join('.');
 
-                                if (domain.length >= 5 &&
+                                // Validate domain
+                                if (domain.length >= 5 && // "go.vn" = 5 chars minimum
                                     /^[a-z0-9.-]+$/i.test(domain) &&
                                     !domain.startsWith('.') &&
-                                    !domain.endsWith('.')) {
+                                    !domain.endsWith('.') &&
+                                    !/^[a-z]\.[a-z]$/i.test(domain)) { // Block "a.b"
                                     uniqueHosts.add(domain);
                                 }
                             }
@@ -428,16 +459,36 @@
                     }
                 }
 
-                this.extendedKeywords = Array.from(uniqueHosts).filter(k => k.length >= 3);
+                this.extendedKeywords = Array.from(uniqueHosts).filter(k => {
+                    if (!/[a-z0-9]/i.test(k))
+                        return true;
+                    return k.length >= 3;
+                });
 
+                // Debug suspicious entries
+                const suspicious = this.extendedKeywords.filter(k =>
+                        k.length < 3 && /[a-z0-9]/i.test(k));
+                if (suspicious.length > 0) {
+                    console.warn('⚠️ Suspicious keywords:', suspicious);
+                }
+
+                // Save & compile
                 storageManager.set(SPAM_KEYWORDS_KEY, this.extendedKeywords);
                 spamKeywords = this.extendedKeywords;
                 compileSpamRegex();
 
+                //console.log(`Loaded ${this.extendedKeywords.length} keywords (${this.extendedKeywords.length - spamKeywords.length} from hosts)`);
                 return this.extendedKeywords;
             } catch (error) {
                 console.error(`Failed to load content from ${url}:`, error);
-                this.extendedKeywords = [...spamKeywords];
+                // Fallback with cleanup
+                this.extendedKeywords = Array.from(uniqueHosts).filter(k => {
+                    if (!/[a-z0-9]/i.test(k))
+                        return true;
+                    return k.length >= 3;
+                });
+                spamKeywords = this.extendedKeywords;
+                compileSpamRegex();
                 return this.extendedKeywords;
             }
         },
@@ -494,6 +545,7 @@
 						if (urlRegex.test(titleText)) {
                             logMessage(`User %c${username}%c detected as spammer. Title contains URL: %c${titleText}%c`,
                                 ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
+							tmpKeyword = "url_in_title";
                             return true;
                         }
                     }
@@ -568,15 +620,33 @@
                     status: 'not_spam'
                 };
             }
-			const shouldDelDataKeyWorld = ["temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified", "url", "recovery"];
 
-			const shouldDelData = finalKW !== 'recent_content' || (tmpKeyword && shouldDelDataKeyWorld.includes(tmpKeyword)) ? '1' : '0';
+            const shouldDelDataKeyWorld = [
+                "temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified",
+                "url_in_title", "recovery", "buy account", "old account"
+            ];
 
-			tmpKeyword = '';
+            let shouldDelData = '0';
+            let displayKW = finalKW;
+
+            if (finalKW !== 'recent_content') {
+                shouldDelData = '1';
+                displayKW = finalKW;
+            } else if (tmpKeyword && shouldDelDataKeyWorld.includes(tmpKeyword)) {
+                shouldDelData = '1';
+                displayKW = tmpKeyword;
+                finalKW = tmpKeyword;
+            } else {
+                shouldDelData = '0';
+                displayKW = 'recent_content';
+            }
+
+            tmpKeyword = '';
+
             const urlSubfix = finalKW === 'recent_content' ? 'recent-content' : 'about';
 
             if (finalKW.includes("http")) {
-                reviewBan.push(`${username} - ${finalKW}: ${VOZ_BASE_URL}/u/${userId}/#about`);
+                reviewBan.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#about`);
             }
 
             const formData = new FormData();
@@ -604,7 +674,7 @@
 
                 if (!result.success) {
                     await ignoreListManager.addToIgnoreList(userId);
-                    banFails.push(`${username} - ${finalKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
+                    banFails.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
                     logMessage(`%c${username}: Ban failed`, ['background: yellow; color: black; padding: 2px']);
                     return {
                         status: 'ban_failed',
@@ -617,7 +687,7 @@
                 if (data.status === 'ok') {
                     spamCount++;
                     spamUserIds.add(String(userId));
-                    spamList.push(`${username} - ${finalKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
+                    spamList.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
                     logMessage(`%c${username}: ${data.message}`, ['background: #02f55b; color: white; padding: 2px;']);
                     return {
                         status: 'banned',
@@ -625,7 +695,7 @@
                     };
                 } else {
                     await ignoreListManager.addToIgnoreList(userId);
-                    banFails.push(`${username} - ${finalKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
+                    banFails.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
                     logMessage(`%c${username}: ${data.errors ? data.errors[0] : 'Unknown error'}`,
                         ['background: yellow; color: black; padding: 2px']);
                     return {
@@ -641,7 +711,7 @@
                 };
             }
         }
-    };
+	};
 
     /**
      * Member manager
@@ -1001,12 +1071,6 @@
         const extendedKeywords = await spamManager.getSpamKeywords();
         logMessage(`Process to clean all spamer has ID from %c${fromID}%c to %c${toID}%c.`,
             ['background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;', '']);
-		// Sau khi parse xong, check có gì lạ không
-		const suspicious = extendedKeywords.filter(k => k.length < 3 || !/[a-z0-9]/i.test(k));
-		if (suspicious.length > 0) {
-			console.warn('⚠️ Suspicious keywords detected:', suspicious);
-			console.warn('All keyword:', extendedKeywords);
-		}
         let firstErrorId = null;
         const batchSize = 5;
         const delay = 200;
