@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      6.4
-// @description  Spam cleaning tool for voz.vn - Add keywords
+// @version      1.0-Self_Host
+// @description  Spam cleaning tool for voz.vn - Self Host Key Value
 // @match        https://voz.vn/u/*
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -25,13 +25,14 @@
     // === CONSTANTS & VARIABLES ===
 
     // Local storage for the ignore list and processing range.
+    const AUTH_KEY = 'authKey';
     const IGNORE_LIST_KEY = 'voz_ignore_list';
     const LATEST_RANGE_KEY = 'voz_latest_range';
     const LATEST_COUNT_KEY = 'latestCount';
     const AUTORUN_KEY = 'vozAutorun';
-    const SPAM_KEYWORDS_KEY = 'voz_spam_keywords';  // New key for spam keywords API
-    const API_BASE_URL = 'https://keyvalue.immanuel.co/api/KeyVal';
-    const VOZ_BASE_URL = 'https://voz.vn';
+    const SPAM_KEYWORDS_KEY = 'voz_spam_keywords'; // New key for spam keywords API
+    const API_BASE_URL = "https://api.tekmonts.qzz.io/KeyVal"
+        const VOZ_BASE_URL = 'https://voz.vn';
 
     // Size limit for the ignore list (in characters).
     const IGNORE_LIST_SIZE_LIMIT = 200;
@@ -41,16 +42,16 @@
     let ignoreList = [];
     // ===== Added: Advanced reporting lists (keep original logic intact) =====
     // Temporary containers for additional lists
-    let seniorMembers = [];          // [{ id, username, minutes }]
-    let activeUnder10 = [];          // [{ id, username, minutes }]
+    let seniorMembers = []; // [{ id, username, minutes }]
+    let activeUnder10 = []; // [{ id, username, minutes }]
     // Track IDs to enforce global uniqueness + easy exclusion
-    let spamUserIds = new Set();     // spammers banned in current run
+    let spamUserIds = new Set(); // spammers banned in current run
     let bannedBeforeSet = new Set(); // users banned before this run (pre-existing bans)
     // =======================================================================
     let banFails = []; // List of users who could not be banned
     let reviewBan = []; // List of users needing further review
     let spamCount = 0; // Count of processed spam users
-	let tmpKeyword = '';
+    let tmpKeyword = '';
 
     // Regular expression to detect a website in the content.
     const websiteRegex = /website\s+([^\s]+)/i;
@@ -58,51 +59,50 @@
 
     // Default spam keywords and usernames (fallback if API fails)
     let spamKeywords = ["pg9", "go8", "temu", "tℰℳu", "{{", "[(", "informações", "contacto", "coupon code", "tỷ số", "kết quả trận đấu", "kết quả bóng đá", "kqbd", "socolive", "solutions", "cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo", "buy account", "old account"];
-    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "1bet", "2bet", "3bet", "4bet", "5bet", "6bet", "7bet", "8bet", "9bet", "pg9", "k9cc", "gbnet", "usorg", "deorg", "aeorg", "eucom", "brcom", "uknet", "uscom", "betbr", "betus", "betde", "decom", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "cakhia", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
+    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "1bet", "2bet", "3bet", "4bet", "5bet", "6bet", "7bet", "8bet", "9bet", "pg9", "k9cc", "gbnet", "usorg", "deorg", "aeorg", "eucom", "brcom", "uknet", "combr", "uscom", "betbr", "betus", "betde", "decom", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "cakhia", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
 
     // Precompile regex for spam checks (Unicode-safe + punctuation-safe)
-	let spamKeywordRegex;
-	let spamUsernameRegex;
+    let spamKeywordRegex;
+    let spamUsernameRegex;
 
-	function compileSpamRegex() {
-	    const toArr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
-	    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    function compileSpamRegex() {
+        const toArr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
+        const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-	    const uniq = (arr) => [
-	        ...new Set(
-	            arr.map(s => (s || '').trim())
-	            .filter(s => s.length > 0))
-	    ];
+        const uniq = (arr) => [
+            ...new Set(
+                arr.map(s => (s || '').trim())
+                .filter(s => s.length > 0))
+        ];
 
-	    const byLenDesc = (a, b) => b.length - a.length;
+        const byLenDesc = (a, b) => b.length - a.length;
 
-	    const filterValid = (arr) => arr.filter(s => {
-	        const cleaned = s.trim();
+        const filterValid = (arr) => arr.filter(s => {
+            const cleaned = s.trim();
 
-	        if (!/[a-z0-9]/i.test(cleaned)) {
-	            return true;
-	        }
+            if (!/[a-z0-9]/i.test(cleaned)) {
+                return true;
+            }
 
-	        return cleaned.length >= 3;
-	    });
+            return cleaned.length >= 3;
+        });
 
-	    const kwList = filterValid(uniq(toArr(spamKeywords))).sort(byLenDesc).map(escapeRegex);
-	    const unList = filterValid(uniq(toArr(spamUserName))).sort(byLenDesc).map(escapeRegex);
+        const kwList = filterValid(uniq(toArr(spamKeywords))).sort(byLenDesc).map(escapeRegex);
+        const unList = filterValid(uniq(toArr(spamUserName))).sort(byLenDesc).map(escapeRegex);
 
-	    const kwAlt = kwList.length > 0 ? kwList.join('|') : 'xxxxxxxxx_never_match';
-	    const unAlt = unList.length > 0 ? unList.join('|') : 'xxxxxxxxx_never_match';
+        const kwAlt = kwList.length > 0 ? kwList.join('|') : 'xxxxxxxxx_never_match';
+        const unAlt = unList.length > 0 ? unList.join('|') : 'xxxxxxxxx_never_match';
 
-	    spamKeywordRegex = new RegExp(`\\b(${kwAlt})\\b`, 'iu');
-	    spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
+        spamKeywordRegex = new RegExp(`\\b(${kwAlt})\\b`, 'iu');
+        spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
 
-	    const singleLetters = kwList.concat(unList).filter(s => /^\\[a-z]$/i.test(s));
-	    if (singleLetters.length > 0) {
-	        console.warn('⚠️ Single letters detected:', singleLetters);
-	    }
+        const singleLetters = kwList.concat(unList).filter(s => /^\\[a-z]$/i.test(s));
+        if (singleLetters.length > 0) {
+            console.warn('⚠️ Single letters detected:', singleLetters);
+        }
 
-	    //console.log(`Compiled regex: ${kwList.length} keywords, ${unList.length} username patterns`);
-	}
-
+        //console.log(`Compiled regex: ${kwList.length} keywords, ${unList.length} username patterns`);
+    }
 
     // Store the default number of keywords to check when updating.
     const defaultSpamKeywordsCount = spamKeywords.length;
@@ -148,10 +148,12 @@
         }
     };
 
+    let authKey = storageManager.get(AUTH_KEY) || '';
     /**
      * API manager with integrated error handling and retries.
      */
-    const apiManager = {
+    const apiManager = {	
+		
         /**
          * Send a fetch request with error handling and retries
          *
@@ -191,12 +193,11 @@
          * Get value from API keyvalue
          *
          * @param {string} appKey - Application key
-         * @param {string} dataKey - Data key
          * @param {*} defaultValue - Default value in case of error
          * @returns {Promise<*>} Data from the API
          */
-        async getValue(appKey, dataKey, defaultValue = null) {
-            const url = `${API_BASE_URL}/getValue/${appKey}/${dataKey}`;
+        async getValue(appKey, defaultValue = null) {
+            const url = `${API_BASE_URL}/getValue/${authKey}/${appKey}`;
             const result = await this.fetchWithErrorHandling(url);
 
             if (result.success) {
@@ -216,13 +217,12 @@
          * Update value to API keyvalue
          *
          * @param {string} appKey - Application key
-         * @param {string} dataKey - Data key
          * @param {*} value - The value to update
          * @returns {Promise<boolean>} Update result
          */
-        async updateValue(appKey, dataKey, value) {
+        async updateValue(appKey, value) {
             const jsonStr = JSON.stringify(value);
-            const url = `${API_BASE_URL}/UpdateValue/${appKey}/${dataKey}/${encodeURIComponent(jsonStr)}`;
+            const url = `${API_BASE_URL}/UpdateValue/${authKey}/${appKey}/${encodeURIComponent(jsonStr)}`;
 
             const result = await this.fetchWithErrorHandling(url, {
                 method: 'POST'
@@ -243,9 +243,10 @@
          */
         async getIgnoreList() {
             const appKey = storageManager.get(IGNORE_LIST_KEY);
-            if (!appKey) return [];
+            if (!appKey)
+                return [];
 
-            const list = await apiManager.getValue(appKey, 'data', []);
+            const list = await apiManager.getValue(appKey, []);
 
             let parsedArray = null;
 
@@ -273,14 +274,15 @@
                 list = [];
             }
             const appKey = storageManager.get(IGNORE_LIST_KEY);
-            if (!appKey) return false;
+            if (!appKey)
+                return false;
 
             let jsonStr = JSON.stringify(list);
             while (jsonStr.length > IGNORE_LIST_SIZE_LIMIT && list.length > 0) {
                 list.shift();
                 jsonStr = JSON.stringify(list);
             }
-            return await apiManager.updateValue(appKey, 'data', list);
+            return await apiManager.updateValue(appKey, list);
         },
 
         /**
@@ -315,9 +317,10 @@
          */
         async getLastRange() {
             const appKey = storageManager.get(LATEST_RANGE_KEY);
-            if (!appKey) return null;
+            if (!appKey)
+                return null;
 
-            const rangeArray = await apiManager.getValue(appKey, 'data', null);
+            const rangeArray = await apiManager.getValue(appKey, null);
 
             let parsedArray = null;
 
@@ -357,10 +360,11 @@
          */
         async setLastRange(range) {
             const appKey = storageManager.get(LATEST_RANGE_KEY);
-            if (!appKey) return false;
+            if (!appKey)
+                return false;
 
             const rangeArray = [range.fromID, range.toID, range.latestID];
-            return await apiManager.updateValue(appKey, 'data', rangeArray);
+            return await apiManager.updateValue(appKey, rangeArray);
         }
     };
 
@@ -519,10 +523,10 @@
 
                 const contentRegex = /<li[^>]*?>[\s\S]*?<h3[^>]*?>\s*<a[^>]*?>((?:<span[^>]*?>[^<]*?<\/span>\s*)*)(.*?)<\/a>[\s\S]*?<li>([^<]+)<\/li>/gi;
                 const matches = [...content.matchAll(contentRegex)];
-				//to review list if user has content In about page
-				if (matches.length > 0) {
-					addToReview(userId, username);
-				}
+                //to review list if user has content In about page
+                if (matches.length > 0) {
+                    addToReview(userId, username);
+                }
                 for (const match of matches) {
                     const titleText = match[2].replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, '').trim();
                     const contentType = match[3].trim().toLowerCase();
@@ -539,13 +543,13 @@
                             const keyword = titleText.match(spamKeywordRegex)[0];
                             logMessage(`User %c${username}%c detected as spammer. Title contains keyword: %c${keyword}%c`,
                                 ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-							tmpKeyword = keyword;
+                            tmpKeyword = keyword;
                             return true;
                         }
-						if (urlRegex.test(titleText)) {
+                        if (urlRegex.test(titleText)) {
                             logMessage(`User %c${username}%c detected as spammer. Title contains URL: %c${titleText}%c`,
                                 ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-							tmpKeyword = "url_in_title";
+                            tmpKeyword = "url_in_title";
                             return true;
                         }
                     }
@@ -711,7 +715,7 @@
                 };
             }
         }
-	};
+    };
 
     /**
      * Member manager
@@ -863,78 +867,77 @@
      * @param {array} styles - Array of style strings for each %c
      */
     function logMessage(message, styles = [], linker) {
-		const styleArray = Array.isArray(styles) ? styles : [];
+        const styleArray = Array.isArray(styles) ? styles : [];
 
-		if (linker) {
-			console.log(message, ...styleArray, linker);
-		} else {
-			console.log(message, ...styleArray);
-		}
-	}
+        if (linker) {
+            console.log(message, ...styleArray, linker);
+        } else {
+            console.log(message, ...styleArray);
+        }
+    }
 
-	/**
-	 * Pretty-print a list of users in console with styled colors.
-	 * - Displays section header with background color.
-	 * - Each user line shows username, active minutes, and content status.
-	 *
-	 * @param {string} label  - Section title (e.g. "Active < 10 min", "Senior Members").
-	 * @param {string} color  - Base color for section and username text.
-	 * @param {Array}  users  - List of user objects [{ id, username, minutes, hasContent }].
-	 */
-	function printUsers(label, color, users) {
-	    if (users.length === 0) {
-	        logMessage(`%c${label}: none.`, [`background: ${color}; color: white; padding: 2px;`]);
-	        return;
-	    }
+    /**
+     * Pretty-print a list of users in console with styled colors.
+     * - Displays section header with background color.
+     * - Each user line shows username, active minutes, and content status.
+     *
+     * @param {string} label  - Section title (e.g. "Active < 10 min", "Senior Members").
+     * @param {string} color  - Base color for section and username text.
+     * @param {Array}  users  - List of user objects [{ id, username, minutes, hasContent }].
+     */
+    function printUsers(label, color, users) {
+        if (users.length === 0) {
+            logMessage(`%c${label}: none.`, [`background: ${color}; color: white; padding: 2px;`]);
+            return;
+        }
 
-	    logMessage(`%c${label}:%c`, [`background: ${color}; color: white; padding: 2px;`, '']);
-	    for (const u of users) {
-	        const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
-	        const hasContentColor = u.hasContent ? 'red' : 'green';
-	        const hasContentText = u.hasContent ? 'has content' : '';
-	        logMessage(
-				`%c${u.username}:%c ${u.lastSeen} %c(${u.minutes}')%c ${hasContentText}`,
-	            [
-					`color: ${color}; font-weight: bold;`,
-	                'color: cyan; font-weight: bold;',
-	                'background: green; color: white; padding: 3px;',
-					`color: ${hasContentColor}; font-weight: bold;`
-	            ],
-	            linker
-			);
-	    }
-	}
+        logMessage(`%c${label}:%c`, [`background: ${color}; color: white; padding: 2px;`, '']);
+        for (const u of users) {
+            const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
+            const hasContentColor = u.hasContent ? 'red' : 'green';
+            const hasContentText = u.hasContent ? 'has content' : '';
+            logMessage(
+`%c${u.username}:%c ${u.lastSeen} %c(${u.minutes}')%c ${hasContentText}`,
+                [
+`color: ${color}; font-weight: bold;`,
+                    'color: cyan; font-weight: bold;',
+                    'background: green; color: white; padding: 3px;',
+`color: ${hasContentColor}; font-weight: bold;`
+                ],
+                linker);
+        }
+    }
 
-	/**
-	* Utility function for managing review candidates in the
-	* "seniorMembers" and "activeUnder10" lists.
-	*
-	* @param {string|number} userID   - Unique ID of the user.
-	* @param {string} userName        - Display name of the user.
-	*/
-	function addToReview(userID, userName) {
-	    const idStr = userID.toString();
+    /**
+     * Utility function for managing review candidates in the
+     * "seniorMembers" and "activeUnder10" lists.
+     *
+     * @param {string|number} userID   - Unique ID of the user.
+     * @param {string} userName        - Display name of the user.
+     */
+    function addToReview(userID, userName) {
+        const idStr = userID.toString();
 
-	    // Find user in both lists
-	    const inActive = activeUnder10.find(u => u.id === idStr);
-	    const inSenior = seniorMembers.find(u => u.id === idStr);
+        // Find user in both lists
+        const inActive = activeUnder10.find(u => u.id === idStr);
+        const inSenior = seniorMembers.find(u => u.id === idStr);
 
-	    if (inActive || inSenior) {
-	        // Mark hasContent = true on both lists where applicable
-	        if (inActive)
-	            inActive.hasContent = true;
-	        if (inSenior)
-	            inSenior.hasContent = true;
-	    } else {
-	        // Not found anywhere -> add to seniorMembers
-	        seniorMembers.push({
-	            id: idStr,
-	            username: userName,
-	            minutes: -1,
-	            hasContent: true
-	        });
-	    }
-	}
+        if (inActive || inSenior) {
+            // Mark hasContent = true on both lists where applicable
+            if (inActive)
+                inActive.hasContent = true;
+            if (inSenior)
+                inSenior.hasContent = true;
+        } else {
+            // Not found anywhere -> add to seniorMembers
+            seniorMembers.push({
+                id: idStr,
+                username: userName,
+                minutes: -1,
+                hasContent: true
+            });
+        }
+    }
 
     /**
      * Remove HTML tags from a string
@@ -943,7 +946,8 @@
      * @returns {string} The processed text string
      */
     function stripHtmlTags(html) {
-        if (!html) return '';
+        if (!html)
+            return '';
 
         tempDiv.innerHTML = html;
         let text = tempDiv.textContent || tempDiv.innerText || '';
@@ -1017,9 +1021,9 @@
             if (executing.size >= limit) {
                 await Promise.race(executing);
             }
-            executing.delete(p.catch(() => {}));  // Handle errors
+            executing.delete(p.catch(() => {})); // Handle errors
         }
-        return Promise.allSettled(results);  // Use allSettled to continue on errors
+        return Promise.allSettled(results); // Use allSettled to continue on errors
     }
 
     /**
@@ -1166,12 +1170,25 @@
                     try {
                         const diffMin = (joinedTimestamp && lastSeenTimestamp) ? Math.abs((lastSeenTimestamp - joinedTimestamp) / 60000) : null;
                         if (diffMin !== null && diffMin <= 10) {
-                            activeUnder10.push({ id: currentId.toString(), username: username || '', minutes: Math.round(diffMin), lastSeen: lastSeenText, hasContent: false });
+                            activeUnder10.push({
+                                id: currentId.toString(),
+                                username: username || '',
+                                minutes: Math.round(diffMin),
+                                lastSeen: lastSeenText,
+                                hasContent: false
+                            });
                         }
                         if (userTitle && /senior\s*member/i.test(userTitle)) {
-                            seniorMembers.push({ id: currentId.toString(), username: username || '', minutes: Math.round(diffMin), lastSeen: lastSeenText, hasContent: false });
+                            seniorMembers.push({
+                                id: currentId.toString(),
+                                username: username || '',
+                                minutes: Math.round(diffMin),
+                                lastSeen: lastSeenText,
+                                hasContent: false
+                            });
                         }
-                    } catch (e) { /* non-fatal */ }
+                    } catch (e) { /* non-fatal */
+                    }
                     // ======================================================
 
                     if (joinedTimestamp && lastSeenTimestamp) {
@@ -1201,8 +1218,8 @@
                     if (viewingInfo) {
                         message += `%cActivity        : %c${viewingInfo}`;
                     } else {
-						message += `%cActivity        : %cNo activity found`;
-					}
+                        message += `%cActivity        : %cNo activity found`;
+                    }
 
                     return {
                         username,
@@ -1233,7 +1250,6 @@
             return match ? parseInt(match[1]) * 1000 : null;
         }
 
-
         /**
          * Handle a single user
          *
@@ -1241,19 +1257,19 @@
          */
         async function processUser(currentId) {
             const isBanned = await checkIfUserBanned(currentId);
-			
+
             if (isBanned.status === true) {
                 spamCount++;
                 // Added: mark pre-banned user to exclude from new lists
                 bannedBeforeSet.add(currentId.toString());
                 logMessage(`User %c${isBanned.username}%c had been banned before. `,
                     ['color: red; font-weight: bold;', ''],
-					`Link: ${VOZ_BASE_URL}/u/${currentId}/#about`);
+`Link: ${VOZ_BASE_URL}/u/${currentId}/#about`);
 
                 return;
             }
-			
-			tmpKeyword = '';
+
+            tmpKeyword = '';
 
             const url = `${VOZ_BASE_URL}/u/${currentId}/about?_xfResponseType=json&_xfWithData=1`;
             try {
@@ -1262,10 +1278,10 @@
                     console.error(`Failed to fetch data for ID: ${currentId}`);
                     return;
                 }
-				// Normalize + strip helper
-				const norm = (s) => (s || '')
-					.normalize('NFKC')
-					.replace(/[\u200B\u200C\u200D\uFEFF]/g, ''); // zero-width
+                // Normalize + strip helper
+                const norm = (s) => (s || '')
+                .normalize('NFKC')
+                .replace(/[\u200B\u200C\u200D\uFEFF]/g, ''); // zero-width
 
                 const data = await result.response.json();
                 if (data.status === "ok") {
@@ -1289,29 +1305,28 @@
                     let isSpam = false;
                     let matchedKeyword = null;
 
-					const candidateName = norm(rawTitle || title);
-					if (spamUsernameRegex.test(candidateName)) {
-						matchedKeyword = candidateName.match(spamUsernameRegex)[0];
-					}
+                    const candidateName = norm(rawTitle || title);
+                    if (spamUsernameRegex.test(candidateName)) {
+                        matchedKeyword = candidateName.match(spamUsernameRegex)[0];
+                    }
                     if (cleanedContent) {
                         logMessage(
-                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` +
-							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` +
-							`HTML content    ↓\n%c${cleanedContent}`,
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+                            `Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` + 
+`HTML content    ↓\n%c${cleanedContent}`,
                             ['color: #17f502; font-weight: bold;',
-                            // style groups for message fields
-                            'color: gray;', 'color: gold; font-weight: bold;',
-                            'color: gray;', 'color: cyan;',
-                            'color: gray;', 'color: orange;',
-                            'color: gray;', 'color: lightgreen;',
-                            'color: gray;', 'color: pink;',
-                            // profile link
-                            'color: gray;', 'color: orange;',
-                            // cleaned content
-                            'color: yellow; font-family: monospace;']
-							);
-						//to review list if user has content In about page
-						addToReview(currentId, candidateName);
+                                // style groups for message fields
+                                'color: gray;', 'color: gold; font-weight: bold;',
+                                'color: gray;', 'color: cyan;',
+                                'color: gray;', 'color: orange;',
+                                'color: gray;', 'color: lightgreen;',
+                                'color: gray;', 'color: pink;',
+                                // profile link
+                                'color: gray;', 'color: orange;',
+                                // cleaned content
+                                'color: yellow; font-family: monospace;']);
+                        //to review list if user has content In about page
+                        addToReview(currentId, candidateName);
                         // Check within the content
                         if (spamKeywordRegex.test(cleanedContent)) {
                             matchedKeyword = cleanedContent.match(spamKeywordRegex)[0];
@@ -1319,29 +1334,25 @@
 
                         if (!matchedKeyword && websiteRegex.test(cleanedContent)) {
                             let mKeyword = cleanedContent.match(websiteRegex)[1];
-							if (spamUsernameRegex.test(mKeyword)) {
-								matchedKeyword = mKeyword
-							} else {
-                            	logMessage(`User %c${rawTitle}%c detected as spammer based on Website %c${mKeyword}%c.\nPlease review and consider to ban this user!`,
-                                	['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', 'color: yellow; font-weight: bold; padding: 2px;']);
-                            	reviewBan.push(`${rawTitle} - ${mKeyword}: ${VOZ_BASE_URL}/u/${currentId}/#about`);
-							}
+                            logMessage(`User %c${rawTitle}%c detected as spammer based on Website %c${mKeyword}%c.\nPlease review and consider to ban this user!`,
+                                ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', 'color: yellow; font-weight: bold; padding: 2px;']);
+                            reviewBan.push(`${rawTitle} - ${mKeyword}: ${VOZ_BASE_URL}/u/${currentId}/#about`);
                         }
                     } else {
                         logMessage(
-                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` +
-							`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
+                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
+`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
                             ['color: #17f502; font-weight: bold;',
-                            // style groups for message fields
-                            'color: gray;', 'color: gold; font-weight: bold;',
-                            'color: gray;', 'color: cyan;',
-                            'color: gray;', 'color: orange;',
-                            'color: gray;', 'color: lightgreen;',
-                            'color: gray;', 'color: pink;',
-                            // profile link
-                            'color: gray;', 'color: orange;']);
+                                // style groups for message fields
+                                'color: gray;', 'color: gold; font-weight: bold;',
+                                'color: gray;', 'color: cyan;',
+                                'color: gray;', 'color: orange;',
+                                'color: gray;', 'color: lightgreen;',
+                                'color: gray;', 'color: pink;',
+                                // profile link
+                                'color: gray;', 'color: orange;']);
                     }
-					if (matchedKeyword) {
+                    if (matchedKeyword) {
                         logMessage(`User %c${rawTitle}%c detected as spammer based on keyword %c${matchedKeyword}%c.`,
                             ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
                         isSpam = true;
@@ -1374,99 +1385,100 @@
         });
 
         if (sortedSpamList.length > 0) {
-			logMessage('%cSpam List:', ['background: #02f55b; color: white; padding: 2px;']);
-			sortedSpamList.forEach(item => {
-				const [usernamePart, linker] = item.split(": ");
-				logMessage(
-					`%c${usernamePart}: `,
-					[
-						'color: red; font-weight: bold;'
-					],
-					linker
-				);
-			});
-		}
+            logMessage('%cSpam List:', ['background: #02f55b; color: white; padding: 2px;']);
+            sortedSpamList.forEach(item => {
+                const [usernamePart, linker] = item.split(": ");
+                logMessage(
+`%c${usernamePart}: `,
+                    [
+                        'color: red; font-weight: bold;'
+                    ],
+                    linker);
+            });
+        }
 
-		if (reviewBan.length > 0) {
-			logMessage('%cReview Ban List:', ['background: yellow; color: black; padding: 2px;']);
-			reviewBan.forEach(item => {
-				const [usernamePart, linker] = item.split(": ");
-				logMessage(
-					`%c${usernamePart}: `,
-					[
-						'color: yellow; font-weight: bold;'
-					],
-					linker
-				);
-			});
-		}
+        if (reviewBan.length > 0) {
+            logMessage('%cReview Ban List:', ['background: yellow; color: black; padding: 2px;']);
+            reviewBan.forEach(item => {
+                const [usernamePart, linker] = item.split(": ");
+                logMessage(
+`%c${usernamePart}: `,
+                    [
+                        'color: yellow; font-weight: bold;'
+                    ],
+                    linker);
+            });
+        }
 
         // ===== Added: Build and print custom lists with global uniqueness & priority =====
         try {
             // Build ID sets
             const reviewBanIds = new Set(reviewBan
-				.map(x => {
-					const m = x.match(/\/u\/(\d+)/);
-					return m ? m[1] : null;
-				})
-				.filter(Boolean)
-			);
-			const needsReviewIds = new Set(
-				(spamList || [])
-				.filter(item => item.includes("recent_content"))
-				.map(item => (item.match(/\/u\/(\d+)/) || [])[1])
-				.filter(Boolean)
-				.map(String)
-			);
+                    .map(x => {
+                        const m = x.match(/\/u\/(\d+)/);
+                        return m ? m[1] : null;
+                    })
+                    .filter(Boolean));
+            const needsReviewIds = new Set(
+                    (spamList || [])
+                    .filter(item => item.includes("recent_content"))
+                    .map(item => (item.match(/\/u\/(\d+)/) || [])[1])
+                    .filter(Boolean)
+                    .map(String));
 
+            // Deduplicate candidate arrays by ID (keep first occurrence)
+            const uniqActive = new Map();
+            for (const item of activeUnder10) {
+                if (!uniqActive.has(item.id))
+                    uniqActive.set(item.id, item);
+            }
+            const uniqSenior = new Map();
+            for (const item of seniorMembers) {
+                if (!uniqSenior.has(item.id))
+                    uniqSenior.set(item.id, item);
+            }
 
-			// Deduplicate candidate arrays by ID (keep first occurrence)
-			const uniqActive = new Map();
-			for (const item of activeUnder10) {
-				if (!uniqActive.has(item.id)) uniqActive.set(item.id, item);
-			}
-			const uniqSenior = new Map();
-			for (const item of seniorMembers) {
-				if (!uniqSenior.has(item.id)) uniqSenior.set(item.id, item);
-			}
+            // Exclude banned (current run + pre-existing)
+            const isExcluded = (id) => spamUserIds.has(id) || bannedBeforeSet.has(id);
 
-			// Exclude banned (current run + pre-existing)
-			const isExcluded = (id) => spamUserIds.has(id) || bannedBeforeSet.has(id);
+            // ✅ Priority: ReviewBan > Senior > Active<10'
+            const chosenSenior = [];
+            for (const item of uniqSenior.values()) {
+                if (isExcluded(item.id))
+                    continue;
+                if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id))
+                    continue;
+                chosenSenior.push(item);
+            }
 
-			// ✅ Priority: ReviewBan > Senior > Active<10'
-			const chosenSenior = [];
-			for (const item of uniqSenior.values()) {
-				if (isExcluded(item.id)) continue;
-				if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id)) continue;
-				chosenSenior.push(item);
-			}
+            const chosenActive = [];
+            for (const item of uniqActive.values()) {
+                if (isExcluded(item.id))
+                    continue;
+                if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id))
+                    continue;
+                // Exclude anything already in Senior
+                if (chosenSenior.find(a => a.id === item.id))
+                    continue;
+                chosenActive.push(item);
+            }
 
-			const chosenActive = [];
-			for (const item of uniqActive.values()) {
-				if (isExcluded(item.id)) continue;
-				if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id)) continue;
-				// Exclude anything already in Senior
-				if (chosenSenior.find(a => a.id === item.id)) continue;
-				chosenActive.push(item);
-			}
-
-			// ✅ Sort active members and senior members ascending by minutes (shortest active time first)
-			chosenActive.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
-			chosenSenior.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
-
+            // ✅ Sort active members and senior members ascending by minutes (shortest active time first)
+            chosenActive.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
+            chosenSenior.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
 
             // Pretty print
             printUsers("Active time < 10' (minutes)", 'purple', chosenActive);
-			printUsers('Senior Members', 'teal', chosenSenior);
+            printUsers('Senior Members', 'teal', chosenSenior);
         } catch (e) {
             console.warn('Failed to build custom lists:', e);
         }
-		// Notify if there are users that need further review
+        // Notify if there are users that need further review
         const matches = sortedSpamList.filter(item => item.includes("recent_content"));
         if ((matches.length + reviewBan.length) > 0) {
             alert(`There are ${matches.length + reviewBan.length} user(s) that need to review ban.`);
         }
-		logMessage(`Finished cleaning %c${spamCount}%c spammers!`, ['background: green; color: white; padding: 2px;', '']);
+        logMessage(`Finished cleaning %c${spamCount}%c spammers!`, ['background: green; color: white; padding: 2px;', '']);
         spamManager.setSpamCount(spamCount);
 
         const finalResult = {
@@ -1487,7 +1499,8 @@
     function addSpamCleanerToNavigation() {
         const navList = document.querySelector('.p-nav-list.js-offCanvasNavSource');
         const footerList = document.querySelector("#footer > div > div.p-footer-row > div.p-footer-row-main > ul");
-        if (!navList && !footerList) return;
+        if (!navList && !footerList)
+            return;
 
         if (document.getElementById('spam-cleaner-button')) {
             return {
@@ -1745,28 +1758,39 @@
         initialize();
     }
 
+    function ensureKeys() {
+
+        const keyConfig = [{
+                key: IGNORE_LIST_KEY,
+                label: "Enter app key for the ignore list:"
+            }, {
+                key: LATEST_RANGE_KEY,
+                label: "Enter app key for the processing range:"
+            }, {
+                key: AUTH_KEY,
+                label: "Enter auth key:"
+            }
+        ]
+
+        for (const item of keyConfig) {
+            if (!storageManager.get(item.key)) {
+                const val = prompt(item.label)
+                    if (val)
+                        storageManager.set(item.key, val)
+            }
+        }
+    }
+
     /**
      * Initialize the script
      */
     async function init() {
         if (window.location.hostname === 'voz.vn') {
             // Request app key if not available
-            if (!storageManager.get(IGNORE_LIST_KEY) || !storageManager.get(LATEST_RANGE_KEY)) {
-                var ignoreAppKey = prompt("// Enter app key for the ignore list:");
-                var rangeAppKey = prompt("// Enter app key for the processing range:");
-
-                if (ignoreAppKey) {
-                    storageManager.set(IGNORE_LIST_KEY, ignoreAppKey);
-                }
-
-                if (rangeAppKey) {
-                    storageManager.set(LATEST_RANGE_KEY, rangeAppKey);
-                }
-            }
+            ensureKeys();
 
             ignoreList = await ignoreListManager.getIgnoreList() || [];
-            compileSpamRegex();  // Initial compile
-
+            compileSpamRegex(); // Initial compile
             initializeBanListeners();
 
             scheduleCleanAllSpamer();
