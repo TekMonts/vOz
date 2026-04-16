@@ -2,8 +2,8 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.0
-// @description  Spam cleaning tool for voz.vn - Refactored
+// @version      2.1
+// @description  Spam cleaning tool for voz.vn - Restructure Json
 // @match        https://voz.vn/u/*
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -108,7 +108,7 @@
 
     const WEBSITE_REGEX = /website\s+([^\s]+)/i;
     const URL_REGEX = /\bhttps?:\/\/[^\s<]+/i;
-    const DOMAIN_SUFFIX_REGEX = /(?:com|app|net|org|club|live|id|id1|io1)$/i;
+    const DOMAIN_SUFFIX_REGEX = /(?:com|app|net|org|club|live|id|id1)$/i;
 
     // ═══════════════════════════════════════════════════════════════════
     // COMPILED SPAM REGEX — built once, rebuilt when keywords change
@@ -312,24 +312,36 @@
             }
         },
 
+        /**
+         * Get value from API. Handles double-stringified legacy data:
+         * if the parsed result is still a string, parse once more.
+         */
         async getValue(appKey, fallback = null) {
-            const r = await this.fetch(`${API_BASE_URL}/GetValue/${authKey}/${appKey}`);
+            const r = await this.fetch(`${API_BASE_URL}/getValue/${authKey}/${appKey}`);
             if (!r.success) return fallback;
             try {
                 const text = await r.response.text();
-                return text ? JSON.parse(text) : fallback;
+                if (!text) return fallback;
+                let parsed = JSON.parse(text);
+                // Legacy fix: server may have stored JSON.stringify(JSON.stringify(x))
+                // resulting in a string like '"[1,2,3]"' instead of '[1,2,3]'
+                if (typeof parsed === 'string') {
+                    try { parsed = JSON.parse(parsed); } catch { /* keep as string */ }
+                }
+                return parsed;
             } catch { return fallback; }
         },
 
         async updateValue(appKey, value) {
             const url = `${API_BASE_URL}/UpdateValue/${authKey}/${appKey}`;
+            // NOTE: intentionally using text/plain to avoid CORS preflight.
+            // application/json triggers OPTIONS preflight on cross-origin requests.
+            // text/plain is CORS-safelisted → browser sends POST directly.
+            // Server parses body as JSON regardless of Content-Type.
             return (await this.fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(value),
-                })).success;
+                method: 'POST',
+                body: JSON.stringify({ value }),
+            })).success;
         },
     };
 
@@ -337,38 +349,52 @@
     // IGNORE LIST MANAGER
     // ═══════════════════════════════════════════════════════════════════
 
-    /** @type {string[]} */
-    let ignoreList = [];
+    /**
+     * Ignore list uses Set<number> internally for O(1) lookups.
+     * On disk: stored as number[] e.g. [2191698, 2192671, ...]
+     * Migration: old string[] like ["2191698",...] is auto-coerced on load.
+     * @type {Set<number>}
+     */
+    let ignoreSet = new Set();
 
     const ignoreListMgr = {
         async load() {
             const appKey = storage.get(STORAGE_KEYS.IGNORE_LIST);
-            if (!appKey) return [];
+            if (!appKey) return new Set();
+
             const data = await api.getValue(appKey, []);
-            // API may return string or array
-            if (typeof data === 'string') {
-                try { return JSON.parse(data); } catch { return []; }
-            }
-            return Array.isArray(data) ? data : [];
+            // Normalize: accept number[] or string[] (legacy), coerce all to number
+            const arr = Array.isArray(data) ? data : [];
+            return new Set(arr.map(Number).filter(n => !isNaN(n) && n > 0));
         },
 
-        async save(list) {
+        async save(set) {
             const appKey = storage.get(STORAGE_KEYS.IGNORE_LIST);
             if (!appKey) return false;
-            // Enforce size limit (FIFO eviction)
-            let json = JSON.stringify(list);
-            while (json.length > IGNORE_LIST_SIZE_LIMIT && list.length > 0) {
-                list.shift();
-                json = JSON.stringify(list);
+
+            let arr = [...set]; // number[]
+            // Enforce size limit (FIFO eviction from oldest)
+            let json = JSON.stringify(arr);
+            while (json.length > IGNORE_LIST_SIZE_LIMIT && arr.length > 0) {
+                arr.shift();
+                json = JSON.stringify(arr);
             }
-            return api.updateValue(appKey, list);
+            // Sync the Set back if we evicted
+            if (arr.length < set.size) {
+                ignoreSet = new Set(arr);
+            }
+            return api.updateValue(appKey, arr);
+        },
+
+        has(userId) {
+            return ignoreSet.has(Number(userId));
         },
 
         async add(userId) {
-            const id = String(userId);
-            if (ignoreList.includes(id)) return true;
-            ignoreList.push(id);
-            return this.save(ignoreList);
+            const id = Number(userId);
+            if (isNaN(id) || ignoreSet.has(id)) return true;
+            ignoreSet.add(id);
+            return this.save(ignoreSet);
         },
     };
 
@@ -376,21 +402,48 @@
     // RANGE MANAGER
     // ═══════════════════════════════════════════════════════════════════
 
+    /**
+     * On disk (new format): { "from": 2203008, "to": 2203096, "latest": 2203096 }
+     * Migration: old [2203008, 2203096, 2203096] positional array auto-converted.
+     * @typedef {{ from: number, to: number, latest: number }} Range
+     */
     const rangeMgr = {
+        /** @returns {Promise<Range|null>} */
         async load() {
             const appKey = storage.get(STORAGE_KEYS.LATEST_RANGE);
             if (!appKey) return null;
-            let arr = await api.getValue(appKey, null);
-            if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { return null; } }
-            if (!Array.isArray(arr) || arr.length < 3) return null;
-            const [fromID, toID, latestID] = arr.map(Number);
-            return (isNaN(fromID) || isNaN(toID) || isNaN(latestID)) ? null : { fromID, toID, latestID };
+
+            const data = await api.getValue(appKey, null);
+            if (!data) return null;
+
+            // New format: { from, to, latest }
+            if (data.from != null && data.to != null && data.latest != null) {
+                const r = { from: Number(data.from), to: Number(data.to), latest: Number(data.latest) };
+                return (isNaN(r.from) || isNaN(r.to) || isNaN(r.latest)) ? null : r;
+            }
+
+            // Legacy format: [from, to, latest] positional array
+            if (Array.isArray(data) && data.length >= 3) {
+                const [from, to, latest] = data.map(Number);
+                if (isNaN(from) || isNaN(to) || isNaN(latest)) return null;
+                // Auto-migrate: save back as named object
+                const range = { from, to, latest };
+                await this.save(range);
+                return range;
+            }
+
+            return null;
         },
 
+        /** @param {Range} range */
         async save(range) {
             const appKey = storage.get(STORAGE_KEYS.LATEST_RANGE);
             if (!appKey) return false;
-            return api.updateValue(appKey, [range.fromID, range.toID, range.latestID]);
+            return api.updateValue(appKey, {
+                from: range.from,
+                to: range.to,
+                latest: range.latest,
+            });
         },
     };
 
@@ -526,13 +579,13 @@
         if (firstMemberEl) {
             userId = firstMemberEl.getAttribute('data-user-id');
             log(`Newest Member User ID in this page: %c${userId}`, ['background: green; color: white; padding: 2px;']);
-            if (!latestRange || parseInt(userId) > parseInt(latestRange.latestID)) {
+            if (!latestRange || Number(userId) > latestRange.latest) {
                 return userId;
             }
         }
 
         // Need to search for newest
-        userId = latestRange ? parseInt(latestRange.latestID) : 0;
+        userId = latestRange ? latestRange.latest : 0;
         const userPage = `${VOZ_BASE_URL}/u/`;
 
         if (firstMemberEl && autorun && !isMobile()) {
@@ -708,9 +761,7 @@
      * @returns {Promise<string>} status: 'banned'|'ban_failed'|'ignored'|'not_spam'|'error'
      */
     async function banSpamUser(userId, username, keyword, ctx) {
-        const userIdStr = String(userId);
-
-        if (ignoreList.includes(userIdStr)) {
+        if (ignoreListMgr.has(userId)) {
             log(`User %c${username}%c (${userId}) is ignored.`, ['background: green; color: white; padding: 2px;', '']);
             return 'ignored';
         }
@@ -761,7 +812,7 @@
             const data = await result.response.json();
             if (data.status === 'ok') {
                 ctx.spamCount++;
-                ctx.spamUserIds.add(userIdStr);
+                ctx.spamUserIds.add(Number(userId));
                 ctx.spamList.push(entry);
                 log(`%c${username}: ${data.message}`, ['background: #02f55b; color: white; padding: 2px;']);
                 return 'banned';
@@ -794,7 +845,7 @@
 
         if (status.banned) {
             ctx.spamCount++;
-            ctx.bannedBeforeSet.add(String(userId));
+            ctx.bannedBeforeSet.add(Number(userId));
             log(`User %c${status.username}%c was already banned.`,
                 ['color: red; font-weight: bold;', ''],
                 `${VOZ_BASE_URL}/u/${userId}/#about`);
@@ -803,15 +854,16 @@
 
         // Track metadata for reporting lists
         const diffMin = status.diffMinutes;
+        const numId = Number(userId);
         if (diffMin != null && diffMin <= 10) {
             ctx.activeUnder10.push({
-                id: String(userId), username: status.username,
+                id: numId, username: status.username,
                 minutes: Math.round(diffMin), lastSeen: status.lastSeenText, hasContent: false,
             });
         }
         if (status.userTitle && /senior\s*member/i.test(status.userTitle)) {
             ctx.seniorMembers.push({
-                id: String(userId), username: status.username,
+                id: numId, username: status.username,
                 minutes: diffMin != null ? Math.round(diffMin) : -1,
                 lastSeen: status.lastSeenText, hasContent: false,
             });
@@ -851,14 +903,35 @@
         }
 
         // Step 4: Check profile content
+        //
+        // status.message contains dynamic %c pairs (Title, Joined, Last Seen,
+        // Time Diff, Activity) — up to 5 pairs = 10 %c placeholders.
+        // We must supply matching styles or console colors break.
+        //
+        // Layout of %c in the full string:
+        //   1.  %c ${rawTitle}           → green bold
+        //  2-11. status.message          → alternating gray label / colored value
+        //                                  (up to 5×2 = 10, extras are harmless)
+        //  12.  %c before Profile Link   → gray
+        //  13.  %c ${url}                → orange bold
+        //  14.  %c ${cleanedContent}     → yellow monospace  (only when content exists)
+
+        const msgStyles = [
+            'color: #17f502; font-weight: bold;',       // 1: username
+            'color: gray;', 'color: gold; font-weight: bold;',       // Title label / value
+            'color: gray;', 'color: cyan;',                          // Joined
+            'color: gray;', 'color: orange;',                        // Last Seen
+            'color: gray;', 'color: lightgreen;',                    // Time Diff
+            'color: gray;', 'color: pink;',                          // Activity
+            'color: gray;', 'color: orange; font-weight: bold;',     // Profile Link label / url
+        ];
+
         if (cleanedContent) {
             log(
                 `Processing user : %c${rawTitle}\n${status.message}\n%c` +
                 `Profile Link    : %c${VOZ_BASE_URL}/u/${userId}/#about\n` +
                 `HTML content    ↓\n%c${cleanedContent}`,
-                ['color: #17f502; font-weight: bold;',
-                 'color: gray;', 'color: orange; font-weight: bold;',
-                 'color: yellow; font-family: monospace;']
+                [...msgStyles, 'color: yellow; font-family: monospace;']
             );
 
             // [FIX] Only addToReview when there's actual profile content (not empty)
@@ -884,7 +957,7 @@
             log(
                 `Processing user : %c${rawTitle}\n${status.message}\n%c` +
                 `Profile Link    : %c${VOZ_BASE_URL}/u/${userId}/#about`,
-                ['color: #17f502; font-weight: bold;', 'color: gray;', 'color: orange; font-weight: bold;']
+                msgStyles
             );
         }
 
@@ -903,13 +976,13 @@
 
     /** Mark a user for review in the reporting lists */
     function markReview(userId, username, ctx) {
-        const idStr = String(userId);
-        const inActive = ctx.activeUnder10.find(u => u.id === idStr);
-        const inSenior = ctx.seniorMembers.find(u => u.id === idStr);
+        const id = Number(userId);
+        const inActive = ctx.activeUnder10.find(u => u.id === id);
+        const inSenior = ctx.seniorMembers.find(u => u.id === id);
         if (inActive) inActive.hasContent = true;
         if (inSenior) inSenior.hasContent = true;
         if (!inActive && !inSenior) {
-            ctx.seniorMembers.push({ id: idStr, username, minutes: -1, hasContent: true });
+            ctx.seniorMembers.push({ id, username, minutes: -1, hasContent: true });
         }
     }
 
@@ -933,37 +1006,37 @@
         };
 
         // Determine ID range
-        let fromID, toID;
+        let from, to;
         try {
-            const maxAllow = await findNewestMember(autorun);
+            const maxAllow = Number(await findNewestMember(autorun));
             const latestRange = await rangeMgr.load();
             if (latestRange) {
-                fromID = Math.max(1, parseInt(latestRange.latestID) - 10);
-                toID = Math.min(parseInt(latestRange.latestID) + 1000, maxAllow);
+                from = Math.max(1, latestRange.latest - 10);
+                to = Math.min(latestRange.latest + 1000, maxAllow);
             } else {
-                fromID = Math.max(1, parseInt(maxAllow) - 100);
-                toID = parseInt(maxAllow);
+                from = Math.max(1, maxAllow - 100);
+                to = maxAllow;
             }
-            toID = Math.min(toID, maxAllow);
+            to = Math.min(to, maxAllow);
         } catch (err) {
             console.error('Failed to determine member range:', err);
             return { status: 'error', message: 'Failed to get member range' };
         }
 
-        const newRange = { fromID, toID, latestID: toID };
+        const newRange = { from, to, latest: to };
 
         // Load keywords & compile regex
         await loadSpamKeywords();
 
-        log(`Processing IDs %c${fromID}%c → %c${toID}%c`,
+        log(`Processing IDs %c${from}%c → %c${to}%c`,
             ['background: green; color: white; padding: 2px;', '',
              'background: green; color: white; padding: 2px;', '']);
 
         let firstErrorId = null;
 
         // Process in batches
-        for (let start = fromID; start <= toID; start += BATCH_SIZE) {
-            const end = Math.min(start + BATCH_SIZE - 1, toID);
+        for (let start = from; start <= to; start += BATCH_SIZE) {
+            const end = Math.min(start + BATCH_SIZE - 1, to);
             const tasks = [];
 
             for (let id = start; id <= end; id++) {
@@ -974,7 +1047,7 @@
                     } catch (err) {
                         if (!firstErrorId) {
                             firstErrorId = capturedId;
-                            newRange.latestID = capturedId;
+                            newRange.latest = capturedId;
                         }
                         console.error(`Error processing ID ${capturedId}:`, err);
                     }
@@ -982,7 +1055,7 @@
             }
 
             await limitConcurrency(tasks, CONCURRENCY_LIMIT);
-            if (end < toID) await sleep(BATCH_DELAY_MS);
+            if (end < to) await sleep(BATCH_DELAY_MS);
         }
 
         // Save range
@@ -1012,10 +1085,15 @@
 
         // Build de-duplicated reporting lists
         try {
+            // Extract user IDs from URL strings → number set
+            const extractIds = (items) => items
+                .map(x => (x.match(/\/u\/(\d+)/) || [])[1])
+                .filter(Boolean)
+                .map(Number);
+
             const reviewIds = new Set([
-                ...ctx.reviewBan.map(x => (x.match(/\/u\/(\d+)/) || [])[1]).filter(Boolean),
-                ...sorted.filter(x => x.includes('recent_content'))
-                    .map(x => (x.match(/\/u\/(\d+)/) || [])[1]).filter(Boolean),
+                ...extractIds(ctx.reviewBan),
+                ...extractIds(sorted.filter(x => x.includes('recent_content'))),
             ]);
 
             const isExcluded = (id) => ctx.spamUserIds.has(id) || ctx.bannedBeforeSet.has(id);
@@ -1275,7 +1353,7 @@
         if (window.location.hostname !== 'voz.vn') return;
 
         ensureKeys();
-        ignoreList = await ignoreListMgr.load();
+        ignoreSet = await ignoreListMgr.load();
         compileSpamRegex(spamKeywords, spamUserNames);
         initLiftBanListeners();
         initScheduler();
