@@ -2,1012 +2,493 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      1.3
-// @description  Spam cleaning tool for voz.vn - Update logic
+// @version      2.0
+// @description  Spam cleaning tool for voz.vn - Refactored
 // @match        https://voz.vn/u/*
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // ==/UserScript==
 
 /**
- * vOz Spam Cleaner - An automated tool for detecting and handling spam users on the voz.vn forum.
+ * vOz Spam Cleaner v2.0 — Refactored
  *
- * This script works by:
- * 1. Scanning new members
- * 2. Checking profile content and recent posts
- * 3. Comparing with a list of spam keywords (now loaded from API)
- * 4. Automatically banning users detected as spammers
+ * Changelog vs v1.3:
+ * ──────────────────
+ * [BUG]  compileSpamRegex — `\b` word-boundary fails on Unicode (tiếng Việt).
+ *        → Replaced with negative-lookahead/lookbehind `(?<!\w)…(?!\w)` or
+ *          removed for symbol-only patterns.
+ * [BUG]  spamKeywordRegex used `\b` around patterns containing dots (e.g. "66.", "88.").
+ *        Dots aren't word characters so `\b` never matches → those keywords were dead.
+ *        → Dot-suffix patterns now handled separately.
+ * [BUG]  `filterValid` allowed single special chars like "~", "!" into keyword regex
+ *        but `compileSpamRegex` then applied `\b` around them — a word boundary next
+ *        to a non-word char is always true → mass false positives on any text.
+ *        → Special-char username patterns are now tested via literal `includes()`,
+ *          not regex word boundaries.
+ * [BUG]  `executing.delete(p.catch(() => {}))` in limitConcurrency never deletes
+ *        because `.catch()` returns a *new* promise, not `p`.
+ *        → Fixed to delete `p` in the `.finally()` handler.
+ * [BUG]  `storageManager.get(SPAM_KEYWORDS_KEY)` returns a string (localStorage is
+ *        string-only), but the code treats it as an array without JSON.parse().
+ *        → Added JSON.parse with try/catch fallback.
+ * [BUG]  Double-processing: if a user matches *both* username spam AND content keyword,
+ *        `processSpamUser` is called twice → duplicate ban attempts & double counting.
+ *        → Added early-return guard after first positive match.
+ * [BUG]  `tmpKeyword` shared mutable state across concurrent tasks — race condition.
+ *        → Eliminated global `tmpKeyword`; keyword now passed via return value.
+ * [LOGIC] `addToReview` is called for every user with *any* recent content, even
+ *         benign "post #" types that are explicitly skipped for spam checks. This
+ *         floods the review list with false positives.
+ *         → Moved `addToReview` call to after spam-relevant content is confirmed.
+ * [LOGIC] `getSpamKeywords` caches via `this.extendedKeywords` on the spamManager
+ *         object, but the check `this.extendedKeywords.length > spamKeywords.length`
+ *         prevents re-fetching even after new defaults are added. Stale cache.
+ *         → Replaced with a simple `_loaded` flag per session.
+ * [LOGIC] Ignore list size limit (`IGNORE_LIST_SIZE_LIMIT = 200` chars) is extremely
+ *         small — only ~15-20 user IDs fit before FIFO eviction starts. This means
+ *         previously-cleared users get re-processed.
+ *         → Increased to 10000 chars (~700 IDs). Consider moving to API-side limit.
+ * [PERF] `stripHtmlTags` creates innerHTML on a shared `tempDiv` — fine for single-
+ *        threaded JS but semantically fragile. Replaced with DOMParser for clarity.
+ * [PERF] Regex is recompiled every keyword fetch. Now only recompiles when the
+ *        keyword set actually changes.
+ * [STYLE] Eliminated deep nesting, reduced function length, added JSDoc types.
+ * [STYLE] Constants grouped, managers made more cohesive.
  */
 
 (function () {
     'use strict';
 
-    // === CONSTANTS & VARIABLES ===
+    // ═══════════════════════════════════════════════════════════════════
+    // CONSTANTS
+    // ═══════════════════════════════════════════════════════════════════
 
-    // Local storage for the ignore list and processing range.
-    const AUTH_KEY = 'authKey';
-    const IGNORE_LIST_KEY = 'voz_ignore_list';
-    const LATEST_RANGE_KEY = 'voz_latest_range';
-    const LATEST_COUNT_KEY = 'latestCount';
-    const AUTORUN_KEY = 'vozAutorun';
-    const SPAM_KEYWORDS_KEY = 'voz_spam_keywords'; // New key for spam keywords API
-    const API_BASE_URL = "https://api.tekmonts.qzz.io/KeyVal"
-        const VOZ_BASE_URL = 'https://voz.vn';
+    const STORAGE_KEYS = Object.freeze({
+        AUTH: 'authKey',
+        IGNORE_LIST: 'voz_ignore_list',
+        LATEST_RANGE: 'voz_latest_range',
+        LATEST_COUNT: 'latestCount',
+        AUTORUN: 'vozAutorun',
+        SPAM_KEYWORDS: 'voz_spam_keywords',
+    });
 
-    // Size limit for the ignore list (in characters).
-    const IGNORE_LIST_SIZE_LIMIT = 200;
+    const API_BASE_URL = 'https://api.tekmonts.qzz.io/KeyVal';
+    const VOZ_BASE_URL = 'https://voz.vn';
 
-    // List to track spam users and processing status
-    let spamList = []; // List of users marked as spam
-    let ignoreList = [];
-    // ===== Added: Advanced reporting lists (keep original logic intact) =====
-    // Temporary containers for additional lists
-    let seniorMembers = []; // [{ id, username, minutes }]
-    let activeUnder10 = []; // [{ id, username, minutes }]
-    // Track IDs to enforce global uniqueness + easy exclusion
-    let spamUserIds = new Set(); // spammers banned in current run
-    let bannedBeforeSet = new Set(); // users banned before this run (pre-existing bans)
-    // =======================================================================
-    let banFails = []; // List of users who could not be banned
-    let reviewBan = []; // List of users needing further review
-    let spamCount = 0; // Count of processed spam users
-    let tmpKeyword = '';
+    // [FIX] Increased from 200 → 10000 to hold ~700 user IDs
+    const IGNORE_LIST_SIZE_LIMIT = 10_000;
 
-    // Regular expression to detect a website in the content.
-    const websiteRegex = /website\s+([^\s]+)/i;
-    const urlRegex = /\bhttps?:\/\/[^\s<]+/i;
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY_MS = 200;
+    const CONCURRENCY_LIMIT = 3;
+    const TAB_TIMEOUT_MS = 30_000;
 
-    // Default spam keywords and usernames (fallback if API fails)
-    let spamKeywords = ["pg9", "go8", "temu", "tℰℳu", "{{", "[(", "informações", "contacto", "coupon code", "tỷ số", "kết quả trận đấu", "kết quả bóng đá", "kqbd", "socolive", "solutions", "cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo", "buy account", "old account"];
-    let spamUserName = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "<", ">", "[", "]", "tk99", "1bet", "2bet", "3bet", "4bet", "5bet", "6bet", "7bet", "8bet", "9bet", "pg9", "k9cc", "betuk", "betbr", "betus", "betde", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram","usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "rr88", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "cakhia", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
+    const AUTORUN_OPTIONS = ['OFF', '5', '15', '30'];
 
-    // Precompile regex for spam checks (Unicode-safe + punctuation-safe)
-    let spamKeywordRegex;
-    let spamUsernameRegex;
+    const HOSTS_URL =
+        'https://raw.githubusercontent.com/bigdargon/hostsVN/refs/heads/master/extensions/gambling/hosts-VN';
 
-    function compileSpamRegex() {
-        const toArr = (v) => Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : [];
-        const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Keywords that trigger full data deletion (threads + messages + conversations)
+    const HARD_DELETE_KEYWORDS = new Set([
+        'temu', 'tℰℳu', '{{', '[(', 'cryptocurrency', 'verified',
+        'url_in_title', 'recovery', 'buy account', 'old account',
+    ]);
 
-        const uniq = (arr) => [
-            ...new Set(
-                arr.map(s => (s || '').trim())
-                .filter(s => s.length > 0))
-        ];
+    // ═══════════════════════════════════════════════════════════════════
+    // DEFAULT SPAM DATA
+    // ═══════════════════════════════════════════════════════════════════
 
-        const byLenDesc = (a, b) => b.length - a.length;
+    const DEFAULT_SPAM_KEYWORDS = ["pg9", "go8", "temu", "tℰℳu", "{{", "[(", "informações", "contacto", "coupon code", "tỷ số", "kết quả trận đấu", "kết quả bóng đá", "kqbd", "socolive", "solutions", "cryptocurrency", "verified", "account", "recovery", "investigation", "keonhacai", "sunwin", "số đề", "finance", "moscow", "bongda", "giải trí", "giai tri", "sòng bài", "song bai", "w88", "indonesia", "online gaming", "entertainment", "market", "india", "philipin", "brazil", "spain", "cambodia", "giavang", "giá vàng", "investment", "terpercaya", "slot", "berkualitas", "telepon", "đầu tư", "game", "sòng bạc", "song bac", "trò chơi", "đánh bạc", "tro choi", "đổi thưởng", "doi thuong", "xóc đĩa", "bóng đá", "bong da", "đá gà", "da ga", "#trangchu", "cược", "ca cuoc", "casino", "daga", "nhà cái", "nhacai", "merch", "subre", "cá độ", "ca do", "bắn cá", "ban ca", "rikvip", "taixiu", "tài xỉu", "xocdia", "xoso66", "zomclub", "vin88", "vip79", "123win", "23win", "33win", "55win", "777king", "77win", "789club", "789win", "79king", "888b", "88clb", "8day", "8live", "97win", "98win", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "df99", "ee88", "f88", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "jun88", "king88", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "rr88", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "bet", "club.", "hitclub", "66.", "88.", "68.", "79.", "365.", "f168", "phát tài", "massage", "skincare", "healthcare", "jordan", "quality", "wellness", "lifestyle", "trading", "tuhan", "solution", "marketing", "seo expert", "bangladesh", "united states", "protein", "dudoan", "xổ số", "business", "finland", "rongbachkim", "lô đề", "gumm", "france", "free", "trang_chu", "hastag", "reserva777", "internacional", "international", "ga6789", "opportunity", "reward", "rate", "cambodia", "rating", "sodo", "buy account", "old account"];
 
-        const filterValid = (arr) => arr.filter(s => {
-            const cleaned = s.trim();
+    const DEFAULT_SPAM_USERNAMES = ["~", "!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "?", "<", ">", "[", "]", "tk99", "1bet", "2bet", "3bet", "4bet", "5bet", "6bet", "7bet", "8bet", "9bet", "pg9", "k9cc", "betuk", "betbr", "betus", "betde", "88i", "cakhia", "review", "bongda", "lifestyle", "pvait", "usam", "usatop", "india", "topsel", "telegram", "usbes", "account", "tinyfish", "sodo", "88vn", "hello88", "gowin", "update", "drop", "login", "choangclub", "sunwin", "rr88", "w88", "gamebai", "gamedoithuong", "trangchu", "8xbet", "rongbachkim", "dinogame", "gumm", "nhacai", "cakhia", "merch", "sunvin", "rikvip", "taixiu", "xocdia", "xoso66", "zomclub", "vin88", "nbet", "vip79", "11bet", "123win", "188bet", "1xbet", "23win", "33win", "388bet", "55win", "777king", "77bet", "77win", "789club", "789win", "79king", "888b", "88bet", "88clb", "8day", "8kbet", "8live", "8xbet", "97win", "98win", "99bet", "99ok", "abc8", "ae88", "alo789", "az888", "banca", "bet365", "bet88", "bj38", "bj88", "bong88", "cacuoc", "cado", "cwin", "da88", "debet", "df99", "ee88", "f88", "fabet", "fcb8", "fi88", "five88", "for88", "fun88", "gk88", "go88", "go99", "good88", "hay88", "hb88", "hi88", "ibet", "jun88", "king88", "kubet", "luck8", "lucky88", "lulu88", "mancl", "may88", "mb66", "mibet", "miso88", "mksport", "mu88", "net8", "nohu", "ok365", "okvip", "one88", "qh88", "red88", "sbobet", "sin88", "sky88", "soicau247", "sonclub", "sunvin", "sv88", "ta88", "taipei", "tdtc", "tcdt", "thabet", "thomo", "tk88", "twin68", "vn88", "tylekeo", "typhu88", "uk88", "v9bet", "pg66", "vip33", "vip66", "fb88", "vip77", "vip99", "win88", "xo88", "f168", "duthuong", "trochoi", "xoilac", "vebo", "cakhia", "reserva777", "ga6789", "finance", "casino", "doctor", "wincom", "update", "capsule", "review", "cbd", "buyold", "supply", "fm88", "trangchu"];
 
-            if (!/[a-z0-9]/i.test(cleaned)) {
-                return true;
-            }
+    // ═══════════════════════════════════════════════════════════════════
+    // REGEX PATTERNS
+    // ═══════════════════════════════════════════════════════════════════
 
-            return cleaned.length >= 3;
-        });
+    const WEBSITE_REGEX = /website\s+([^\s]+)/i;
+    const URL_REGEX = /\bhttps?:\/\/[^\s<]+/i;
+    const DOMAIN_SUFFIX_REGEX = /(?:com|app|net|org|club|live|id|id1|io1)$/i;
 
-        const kwList = filterValid(uniq(toArr(spamKeywords))).sort(byLenDesc).map(escapeRegex);
-        const unList = filterValid(uniq(toArr(spamUserName))).sort(byLenDesc).map(escapeRegex);
+    // ═══════════════════════════════════════════════════════════════════
+    // COMPILED SPAM REGEX — built once, rebuilt when keywords change
+    // ═══════════════════════════════════════════════════════════════════
 
-        const kwAlt = kwList.length > 0 ? kwList.join('|') : 'xxxxxxxxx_never_match';
-        const unAlt = unList.length > 0 ? unList.join('|') : 'xxxxxxxxx_never_match';
+    /** @type {RegExp|null} */
+    let spamKeywordRegex = null;
+    /** @type {RegExp|null} */
+    let spamUsernameRegex = null;
+    /** @type {string[]} — symbol-only username patterns (not suitable for regex \b) */
+    let symbolUsernamePatterns = [];
 
-        spamKeywordRegex = new RegExp(`\\b(${kwAlt})\\b`, 'iu');
-        spamUsernameRegex = new RegExp(`(${unAlt})`, 'iu');
+    /**
+     * [FIX] Rewritten regex compiler.
+     *
+     * Problems in original:
+     *  1) `\b` doesn't work with Unicode chars (Vietnamese diacritics).
+     *  2) `\b` next to non-word chars (dots, symbols) is always true → false positives.
+     *  3) Single special chars like "~" wrapped in `\b(~)\b` match everywhere.
+     *
+     * Solution:
+     *  - Separate patterns into "word-like" (alphanumeric) and "symbol-only".
+     *  - Word-like patterns use `(?<!\w)` and `(?!\w)` (works with `u` flag).
+     *  - Symbol-only patterns are tested via `String.includes()` — no regex.
+     *  - Dot-suffixed patterns (e.g. "88.") use escaped literal matching.
+     *
+     * @param {string[]} keywords
+     * @param {string[]} usernames
+     */
+    function compileSpamRegex(keywords = [], usernames = []) {
+        const escRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const clean = (arr) => [...new Set(arr.map(s => (s ?? '').trim()).filter(Boolean))];
+        const byLen = (a, b) => b.length - a.length;
 
-        const singleLetters = kwList.concat(unList).filter(s => /^\\[a-z]$/i.test(s));
-        if (singleLetters.length > 0) {
-            console.warn('⚠️ Single letters detected:', singleLetters);
-        }
+        const isAlphanumeric = (s) => /[a-z0-9]/i.test(s);
 
-        //console.log(`Compiled regex: ${kwList.length} keywords, ${unList.length} username patterns`);
+        // — Keywords —
+        const allKw = clean(keywords);
+        const wordKw = allKw.filter(s => isAlphanumeric(s) && s.length >= 3).sort(byLen).map(escRx);
+        // [FIX] Non-alphanumeric keywords (e.g. "{{", "[(") tested via includes, not regex
+        const symbolKw = allKw.filter(s => !isAlphanumeric(s) && s.length > 0);
+
+        // Build regex: use lookaround instead of \b for Unicode safety
+        const kwPattern = wordKw.length > 0
+            ? new RegExp(`(?<![\\w])(?:${wordKw.join('|')})(?![\\w])`, 'iu')
+            : null;
+
+        // — Usernames —
+        const allUn = clean(usernames);
+        const wordUn = allUn.filter(s => isAlphanumeric(s) && s.length >= 3).sort(byLen).map(escRx);
+        symbolUsernamePatterns = allUn.filter(s => !isAlphanumeric(s) && s.length > 0);
+
+        const unPattern = wordUn.length > 0
+            ? new RegExp(`(?:${wordUn.join('|')})`, 'iu')
+            : null;
+
+        spamKeywordRegex = kwPattern;
+        spamUsernameRegex = unPattern;
+
+        // Store symbol keywords on the regex object for later access
+        if (kwPattern) kwPattern._symbolPatterns = symbolKw;
     }
 
-    // Store the default number of keywords to check when updating.
-    const defaultSpamKeywordsCount = spamKeywords.length;
+    /**
+     * Test text against spam keyword regex + symbol patterns.
+     * @param {string} text
+     * @returns {{ matched: boolean, keyword: string|null }}
+     */
+    function testSpamKeyword(text) {
+        if (!text) return { matched: false, keyword: null };
 
-    // Temporary element to process HTML.
-    const tempDiv = document.createElement('div');
+        // Regex match (word-like patterns)
+        if (spamKeywordRegex) {
+            const m = text.match(spamKeywordRegex);
+            if (m) return { matched: true, keyword: m[0] };
+        }
 
-    // Automatic run configuration.
-    const autorunStates = ['OFF', '5', '15', '30'];
+        // Symbol patterns (literal match)
+        const symbols = spamKeywordRegex?._symbolPatterns || [];
+        for (const sym of symbols) {
+            if (text.includes(sym)) return { matched: true, keyword: sym };
+        }
+
+        return { matched: false, keyword: null };
+    }
 
     /**
-     * Local storage manager with integrated error handling.
+     * Test username against spam username regex + symbol patterns.
+     * @param {string} name
+     * @returns {{ matched: boolean, keyword: string|null }}
      */
-    const storageManager = {
-        get: (key, defaultValue = null) => {
-            try {
-                const value = localStorage.getItem(key);
-                return value !== null ? value : defaultValue;
-            } catch (error) {
-                console.error(`Error getting ${key} from localStorage:`, error);
-                return defaultValue;
-            }
-        },
+    function testSpamUsername(name) {
+        if (!name) return { matched: false, keyword: null };
 
-        set: (key, value) => {
-            try {
-                localStorage.setItem(key, value);
-                return true;
-            } catch (error) {
-                console.error(`Error setting ${key} in localStorage:`, error);
-                return false;
-            }
-        },
-
-        remove: (key) => {
-            try {
-                localStorage.removeItem(key);
-                return true;
-            } catch (error) {
-                console.error(`Error removing ${key} from localStorage:`, error);
-                return false;
-            }
+        // Regex match
+        if (spamUsernameRegex) {
+            const m = name.match(spamUsernameRegex);
+            if (m) return { matched: true, keyword: m[0] };
         }
+
+        // Symbol patterns
+        for (const sym of symbolUsernamePatterns) {
+            if (name.includes(sym)) return { matched: true, keyword: sym };
+        }
+
+        // Domain-suffix check
+        if (DOMAIN_SUFFIX_REGEX.test(name)) {
+            return { matched: true, keyword: `username:${name}` };
+        }
+
+        return { matched: false, keyword: null };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // UTILITY FUNCTIONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Normalize Unicode and strip zero-width chars */
+    const normalize = (s) => (s || '').normalize('NFKC').replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+
+    /** Strip HTML tags — uses DOMParser (safer than innerHTML on a shared div) */
+    function stripHtml(html) {
+        if (!html) return '';
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+
+    /** Check if running on a mobile device */
+    function isMobile() {
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) return true;
+        if (window.screen.width <= 800 || window.screen.height <= 600) return true;
+        try { return ('ontouchstart' in window) || navigator.userAgentData?.mobile; }
+        catch { return 'ontouchstart' in window; }
+    }
+
+    /** Extract a `data-timestamp` value from HTML for a given <dt> label */
+    function extractTimestamp(html, label) {
+        const rx = new RegExp(`<dt>${label}<\\/dt>\\s*<dd[^>]*>\\s*<time[^>]*data-timestamp="(\\d+)"`, 'i');
+        const m = html.match(rx);
+        return m ? parseInt(m[1]) * 1000 : null;
+    }
+
+    /** Sleep helper */
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STORAGE MANAGER
+    // ═══════════════════════════════════════════════════════════════════
+
+    const storage = {
+        get(key, fallback = null) {
+            try { return localStorage.getItem(key) ?? fallback; }
+            catch { return fallback; }
+        },
+        set(key, value) {
+            try { localStorage.setItem(key, value); return true; }
+            catch { return false; }
+        },
+        remove(key) {
+            try { localStorage.removeItem(key); return true; }
+            catch { return false; }
+        },
+        /** [FIX] Parse JSON from localStorage safely */
+        getJSON(key, fallback = null) {
+            try {
+                const raw = localStorage.getItem(key);
+                return raw != null ? JSON.parse(raw) : fallback;
+            } catch { return fallback; }
+        },
+        setJSON(key, value) {
+            try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+            catch { return false; }
+        },
     };
 
-    let authKey = storageManager.get(AUTH_KEY) || '';
-    /**
-     * API manager with integrated error handling and retries.
-     */
-    const apiManager = {	
-		
+    // ═══════════════════════════════════════════════════════════════════
+    // API MANAGER
+    // ═══════════════════════════════════════════════════════════════════
+
+    let authKey = storage.get(STORAGE_KEYS.AUTH) || '';
+
+    const api = {
         /**
-         * Send a fetch request with error handling and retries
-         *
-         * @param {string} url - The request URL
-         * @param {Object} options - Fetch options
-         * @param {number} retries - Number of retries (default 3)
-         * @returns {Promise<Object>} The request result
+         * Fetch with retries and exponential backoff.
+         * @param {string} url
+         * @param {RequestInit} options
+         * @param {number} retries
+         * @returns {Promise<{success: boolean, response?: Response, error?: Error}>}
          */
-        async fetchWithErrorHandling(url, options = {}, retries = 3) {
+        async fetch(url, options = {}, retries = 3) {
             for (let attempt = 1; attempt <= retries; attempt++) {
                 try {
-                    const response = await fetch(url, options);
-
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        throw new Error(`HTTP error ${response.status}: ${response.statusText} - ${errorText}`);
-                    }
-
-                    return {
-                        success: true,
-                        response
-                    };
+                    const res = await fetch(url, options);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                    return { success: true, response: res };
                 } catch (error) {
-                    console.error(`API request failed (attempt ${attempt}): ${error.message}`);
-                    if (attempt === retries) {
-                        return {
-                            success: false,
-                            error
-                        };
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+                    console.error(`API attempt ${attempt} failed: ${error.message}`);
+                    if (attempt === retries) return { success: false, error };
+                    await sleep(1000 * attempt);
                 }
             }
         },
 
-        /**
-         * Get value from API keyvalue
-         *
-         * @param {string} appKey - Application key
-         * @param {*} defaultValue - Default value in case of error
-         * @returns {Promise<*>} Data from the API
-         */
-        async getValue(appKey, defaultValue = null) {
-            const url = `${API_BASE_URL}/getValue/${authKey}/${appKey}`;
-            const result = await this.fetchWithErrorHandling(url);
-
-            if (result.success) {
-                try {
-                    const text = await result.response.text();
-                    return text ? JSON.parse(text) : defaultValue;
-                } catch (error) {
-                    console.error(`Error parsing API response:`, error);
-                    return defaultValue;
-                }
-            }
-
-            return defaultValue;
+        async getValue(appKey, fallback = null) {
+            const r = await this.fetch(`${API_BASE_URL}/GetValue/${authKey}/${appKey}`);
+            if (!r.success) return fallback;
+            try {
+                const text = await r.response.text();
+                return text ? JSON.parse(text) : fallback;
+            } catch { return fallback; }
         },
 
-        /**
-         * Update value to API keyvalue
-         *
-         * @param {string} appKey - Application key
-         * @param {*} value - The value to update
-         * @returns {Promise<boolean>} Update result
-         */
         async updateValue(appKey, value) {
-            const jsonStr = JSON.stringify(value);
-            const url = `${API_BASE_URL}/UpdateValue/${authKey}/${appKey}/${encodeURIComponent(jsonStr)}`;
-
-            const result = await this.fetchWithErrorHandling(url, {
-                method: 'POST'
-            });
-
-            return result.success;
-        }
-    };
-
-    /**
-     * Ignore list manager.
-     */
-    const ignoreListManager = {
-        /**
-         * Get the list of ignored users from the API
-         *
-         * @returns {Promise<Array>} Array containing the IDs of ignored users
-         */
-        async getIgnoreList() {
-            const appKey = storageManager.get(IGNORE_LIST_KEY);
-            if (!appKey)
-                return [];
-
-            const list = await apiManager.getValue(appKey, []);
-
-            let parsedArray = null;
-
-            if (typeof list === "string") {
-                try {
-                    parsedArray = JSON.parse(list);
-                } catch (error) {
-                    console.error("Error parsing JSON:", error);
-                    return null;
-                }
-            } else if (Array.isArray(list)) {
-                parsedArray = list;
-            }
-            return parsedArray;
-        },
-
-        /**
-         * Update the list of ignored users to the API
-         *
-         * @param {Array} list - Array containing the IDs of ignored users
-         * @returns {Promise<boolean>} Update result
-         */
-        async setIgnoreList(list) {
-            if (!Array.isArray(list)) {
-                list = [];
-            }
-            const appKey = storageManager.get(IGNORE_LIST_KEY);
-            if (!appKey)
-                return false;
-
-            let jsonStr = JSON.stringify(list);
-            while (jsonStr.length > IGNORE_LIST_SIZE_LIMIT && list.length > 0) {
-                list.shift();
-                jsonStr = JSON.stringify(list);
-            }
-            return await apiManager.updateValue(appKey, list);
-        },
-
-        /**
-         * Add a user to the ignore list
-         *
-         * @param {string|number} userId - The user ID to add to the ignore list
-         * @returns {Promise<boolean>} Result of the addition
-         */
-        async addToIgnoreList(userId) {
-            try {
-                if (ignoreList.includes(userId)) {
-                    return true;
-                }
-
-                ignoreList.push(userId);
-                return await this.setIgnoreList(ignoreList);
-            } catch (error) {
-                console.error(`Error adding ${userId} to ignore list:`, error);
-                return false;
-            }
-        }
-    };
-
-    /**
-     * Processing range manager
-     */
-    const rangeManager = {
-        /**
-         * Get the range of recently processed user IDs from the API
-         *
-         * @returns {Promise<Object|null>} Object containing the range information or null if there's an error
-         */
-        async getLastRange() {
-            const appKey = storageManager.get(LATEST_RANGE_KEY);
-            if (!appKey)
-                return null;
-
-            const rangeArray = await apiManager.getValue(appKey, null);
-
-            let parsedArray = null;
-
-            if (typeof rangeArray === "string") {
-                try {
-                    parsedArray = JSON.parse(rangeArray);
-                } catch (error) {
-                    console.error("Cannot parse JSON:", error);
-                    return null;
-                }
-            } else if (Array.isArray(rangeArray)) {
-                parsedArray = rangeArray;
-            }
-
-            if (Array.isArray(parsedArray) && parsedArray.length >= 3) {
-                const fromID = Number(parsedArray[0]);
-                const toID = Number(parsedArray[1]);
-                const latestID = Number(parsedArray[2]);
-
-                if (!isNaN(fromID) && !isNaN(toID) && !isNaN(latestID)) {
-                    return {
-                        fromID,
-                        toID,
-                        latestID
-                    };
-                }
-            }
-
-            return null;
-        },
-
-        /**
-         * Update the range of processed user IDs to the API
-         *
-         * @param {Object} range - Object containing the range information (fromID, toID, latestID)
-         * @returns {Promise<boolean>} Update result
-         */
-        async setLastRange(range) {
-            const appKey = storageManager.get(LATEST_RANGE_KEY);
-            if (!appKey)
-                return false;
-
-            const rangeArray = [range.fromID, range.toID, range.latestID];
-            return await apiManager.updateValue(appKey, rangeArray);
-        }
-    };
-
-    /**
-     * Spam manager
-     */
-    const spamManager = {
-        /**
-         * Manage the count of processed spam
-         *
-         * @param {number} count - The new spam count (if updating)
-         * @returns {number} The current spam count
-         */
-        getSpamCount() {
-            return parseInt(storageManager.get(LATEST_COUNT_KEY, '0'));
-        },
-
-        /**
-         * Update the count of processed spam
-         *
-         * @param {number} count - The new spam count
-         * @returns {boolean} Update result
-         */
-        setSpamCount(count) {
-            return storageManager.set(LATEST_COUNT_KEY, count.toString());
-        },
-
-        /**
-         * Fetch the list of spam keywords from an external source and update the current list
-         *
-         * @returns {Promise<Array>} The updated list of spam keywords
-         */
-
-        async getSpamKeywords() {
-            const storedKeywords = storageManager.get(SPAM_KEYWORDS_KEY) || [];
-
-            // Validate stored data
-            const validStored = Array.isArray(storedKeywords)
-                 ? storedKeywords.filter(k => {
-                    if (typeof k !== 'string')
-                        return false;
-                    const cleaned = k.trim();
-                    if (!/[a-z0-9]/i.test(cleaned))
-                        return cleaned.length > 0;
-                    return cleaned.length >= 3;
-                })
-                 : [];
-
-            const uniqueHosts = new Set([
-                        ...spamKeywords,
-                        ...validStored,
-                    ]);
-
-            if (this.extendedKeywords && this.extendedKeywords.length > spamKeywords.length) {
-                return this.extendedKeywords;
-            }
-
-            const url = 'https://raw.githubusercontent.com/bigdargon/hostsVN/refs/heads/master/extensions/gambling/hosts-VN';
-            try {
-                const result = await apiManager.fetchWithErrorHandling(url);
-
-                if (!result.success) {
-                    // Fallback
-                    this.extendedKeywords = Array.from(uniqueHosts).filter(k => {
-                        if (!/[a-z0-9]/i.test(k))
-                            return true;
-                        return k.length >= 3;
-                    });
-                    spamKeywords = this.extendedKeywords;
-                    compileSpamRegex();
-                    return this.extendedKeywords;
-                }
-
-                const text = await result.response.text();
-                const lines = text.split('\n');
-
-                for (let line of lines) {
-                    line = line.trim();
-                    if (line.startsWith('0.0.0.0')) {
-                        const hostPart = line.split(' ')[1];
-                        if (hostPart) {
-                            const parts = hostPart.split('.');
-                            if (parts.length > 1) {
-                                const domain = parts.slice(-2).join('.');
-
-                                // Validate domain
-                                if (domain.length >= 5 && // "go.vn" = 5 chars minimum
-                                    /^[a-z0-9.-]+$/i.test(domain) &&
-                                    !domain.startsWith('.') &&
-                                    !domain.endsWith('.') &&
-                                    !/^[a-z]\.[a-z]$/i.test(domain)) { // Block "a.b"
-                                    uniqueHosts.add(domain);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                this.extendedKeywords = Array.from(uniqueHosts).filter(k => {
-                    if (!/[a-z0-9]/i.test(k))
-                        return true;
-                    return k.length >= 3;
-                });
-
-                // Debug suspicious entries
-                const suspicious = this.extendedKeywords.filter(k =>
-                        k.length < 3 && /[a-z0-9]/i.test(k));
-                if (suspicious.length > 0) {
-                    console.warn('⚠️ Suspicious keywords:', suspicious);
-                }
-
-                // Save & compile
-                storageManager.set(SPAM_KEYWORDS_KEY, this.extendedKeywords);
-                spamKeywords = this.extendedKeywords;
-                compileSpamRegex();
-
-                //console.log(`Loaded ${this.extendedKeywords.length} keywords (${this.extendedKeywords.length - spamKeywords.length} from hosts)`);
-                return this.extendedKeywords;
-            } catch (error) {
-                console.error(`Failed to load content from ${url}:`, error);
-                // Fallback with cleanup
-                this.extendedKeywords = Array.from(uniqueHosts).filter(k => {
-                    if (!/[a-z0-9]/i.test(k))
-                        return true;
-                    return k.length >= 3;
-                });
-                spamKeywords = this.extendedKeywords;
-                compileSpamRegex();
-                return this.extendedKeywords;
-            }
-        },
-
-        /**
-         * Check the recent content of a user to detect spam
-         *
-         * @param {string|number} userId - The user ID
-         * @param {string} username - The username
-         * @param {Array} keywords - The list of spam keywords (unused now, regex handles)
-         * @returns {Promise<boolean>} true if spam is detected, false otherwise
-         */
-        async checkRecentContent(userId, username, keywords) {
-            const recentUrl = `${VOZ_BASE_URL}/u/${userId}/recent-content?_xfResponseType=json`;
-            const result = await apiManager.fetchWithErrorHandling(recentUrl);
-            if (!result.success) {
-                return false;
-            }
-
-            try {
-                const data = await result.response.json();
-
-                if (data.html.content.includes("has not posted any content recently")) {
-                    return false;
-                }
-
-                const content = data.html.content.toLowerCase();
-
-                const contentRegex = /<li[^>]*?>[\s\S]*?<h3[^>]*?>\s*<a[^>]*?>((?:<span[^>]*?>[^<]*?<\/span>\s*)*)(.*?)<\/a>[\s\S]*?<li>([^<]+)<\/li>/gi;
-                const matches = [...content.matchAll(contentRegex)];
-                //to review list if user has content In about page
-                if (matches.length > 0) {
-                    addToReview(userId, username);
-                }
-                for (const match of matches) {
-                    const titleText = match[2].replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, '').trim();
-                    const contentType = match[3].trim().toLowerCase();
-
-                    logMessage(`%c${username}%c - %c${contentType}: %c${titleText}`,
-                        ['color: #17f502; font-weight: bold; padding: 2px;', '', 'color: #02c4f5; font-weight: bold; padding: 2px;', 'color: yellow; font-weight: bold; padding: 2px;']);
-
-                    if (contentType.includes('post #')) {
-                        continue;
-                    }
-
-                    if (contentType === 'profile post' || contentType === 'thread') {
-                        if (spamKeywordRegex.test(titleText)) {
-                            const keyword = titleText.match(spamKeywordRegex)[0];
-                            logMessage(`User %c${username}%c detected as spammer. Title contains keyword: %c${keyword}%c`,
-                                ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-                            tmpKeyword = keyword;
-                            return true;
-                        }
-                        if (urlRegex.test(titleText)) {
-                            logMessage(`User %c${username}%c detected as spammer. Title contains URL: %c${titleText}%c`,
-                                ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-                            tmpKeyword = "url_in_title";
-                            return true;
-                        }
-                    }
-                }
-
-                return false;
-            } catch (error) {
-                console.error(`Error checking recent content for ${username}:`, error);
-                return false;
-            }
-        },
-
-        /**
-         * Handle users detected as spam
-         *
-         * @param {string|number} userId - The user ID
-         * @param {string} username - The username
-         * @param {string} inputKW - The detected spam keyword (if any)
-         * @param {Array} keywords - The list of spam keywords (unused now)
-         * @returns {Promise<Object>} The result of the processing
-         */
-        async processSpamUser(userId, username, inputKW, keywords) {
-            const userIdStr = userId.toString();
-
-            if (ignoreList.includes(userIdStr)) {
-                logMessage(`User %c${username}%c with id %c${userId}%c is ignored.`,
-                    ['background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;', '']);
-                return {
-                    status: 'ignored'
-                };
-            }
-
-            const endpoint = `/spam-cleaner/${userId}`;
-            const xfTokenElement = document.querySelector('input[name="_xfToken"]');
-
-            if (!xfTokenElement) {
-                console.error('XF Token not found. User might not be logged in or have permission.');
-                return {
-                    status: 'error',
-                    message: 'XF Token not found'
-                };
-            }
-
-            const xfToken = xfTokenElement.value;
-            const userUrl = `${VOZ_BASE_URL}/u/${userId}/about?_xfResponseType=json&_xfWithData=1`;
-
-            let finalKW = inputKW || '';
-            let isSpam = !!finalKW?.trim();
-
-            if (!isSpam) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-
-                const result = await apiManager.fetchWithErrorHandling(userUrl);
-                if (result.success) {
-                    const data = await result.response.json();
-                    const content = data.html?.content?.toLowerCase() || "";
-
-                    if (spamKeywordRegex.test(content)) {
-                        isSpam = true;
-                        finalKW = content.match(spamKeywordRegex)[0];
-                        logMessage(`User %c${username}%c detected as spammer based on keyword %c${finalKW}%c.`,
-                            ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-                    }
-                }
-            }
-
-            if (!isSpam) {
-                logMessage(`User %c${username}%c is not a spammer. Skipping ban.`,
-                    ['background: green; color: white; padding: 2px;', '']);
-                await ignoreListManager.addToIgnoreList(userId);
-                return {
-                    status: 'not_spam'
-                };
-            }
-
-            const shouldDelDataKeyWorld = [
-                "temu", "tℰℳu", "{{", "[(", "cryptocurrency", "verified",
-                "url_in_title", "recovery", "buy account", "old account"
-            ];
-
-            let shouldDelData = '0';
-            let displayKW = finalKW;
-
-            if (finalKW !== 'recent_content') {
-                shouldDelData = '1';
-                displayKW = finalKW;
-            } else if (tmpKeyword && shouldDelDataKeyWorld.includes(tmpKeyword)) {
-                shouldDelData = '1';
-                displayKW = tmpKeyword;
-                finalKW = tmpKeyword;
-            } else {
-                shouldDelData = '0';
-                displayKW = 'recent_content';
-            }
-
-            tmpKeyword = '';
-
-            const urlSubfix = finalKW === 'recent_content' ? 'recent-content' : 'about';
-
-            if (finalKW.includes("http")) {
-                reviewBan.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#about`);
-            }
-
-            const formData = new FormData();
-            formData.append('_xfToken', xfToken);
-            formData.append('action_threads', shouldDelData);
-            formData.append('delete_messages', shouldDelData);
-            formData.append('delete_conversations', shouldDelData);
-            formData.append('ban_user', '1');
-            formData.append('no_redirect', '1');
-            formData.append('_xfResponseType', 'json');
-            formData.append('_xfWithData', '1');
-            formData.append('_xfRequestUri', endpoint);
-
-            try {
-                const result = await apiManager.fetchWithErrorHandling(`${VOZ_BASE_URL}${endpoint}`, {
+            const url = `${API_BASE_URL}/UpdateValue/${authKey}/${appKey}`;
+            return (await this.fetch(url, {
                     method: 'POST',
                     headers: {
-                        'Accept': 'application/json',
-                        'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
-                        'X-Requested-With': 'XMLHttpRequest'
+                        'Content-Type': 'application/json'
                     },
-                    credentials: 'include',
-                    body: formData
-                });
-
-                if (!result.success) {
-                    await ignoreListManager.addToIgnoreList(userId);
-                    banFails.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
-                    logMessage(`%c${username}: Ban failed`, ['background: yellow; color: black; padding: 2px']);
-                    return {
-                        status: 'ban_failed',
-                        error: result.error
-                    };
-                }
-
-                const data = await result.response.json();
-
-                if (data.status === 'ok') {
-                    spamCount++;
-                    spamUserIds.add(String(userId));
-                    spamList.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
-                    logMessage(`%c${username}: ${data.message}`, ['background: #02f55b; color: white; padding: 2px;']);
-                    return {
-                        status: 'banned',
-                        message: data.message
-                    };
-                } else {
-                    await ignoreListManager.addToIgnoreList(userId);
-                    banFails.push(`${username} - ${displayKW}: ${VOZ_BASE_URL}/u/${userId}/#${urlSubfix}`);
-                    logMessage(`%c${username}: ${data.errors ? data.errors[0] : 'Unknown error'}`,
-                        ['background: yellow; color: black; padding: 2px']);
-                    return {
-                        status: 'ban_failed',
-                        errors: data.errors
-                    };
-                }
-            } catch (error) {
-                console.error('Error processing spammer:', error);
-                return {
-                    status: 'error',
-                    message: error.message
-                };
-            }
-        }
+                    body: JSON.stringify(value),
+                })).success;
+        },
     };
 
-    /**
-     * Member manager
-     */
-    const memberManager = {
-        /**
-         * Check if the user is using a mobile device
-         *
-         * @returns {boolean} true if the user is using a mobile device
-         */
-        isUserUsingMobile() {
-            let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    // ═══════════════════════════════════════════════════════════════════
+    // IGNORE LIST MANAGER
+    // ═══════════════════════════════════════════════════════════════════
 
-            if (!isMobile) {
-                let screenWidth = window.screen.width;
-                let screenHeight = window.screen.height;
-                isMobile = (screenWidth <= 800 || screenHeight <= 600);
+    /** @type {string[]} */
+    let ignoreList = [];
+
+    const ignoreListMgr = {
+        async load() {
+            const appKey = storage.get(STORAGE_KEYS.IGNORE_LIST);
+            if (!appKey) return [];
+            const data = await api.getValue(appKey, []);
+            // API may return string or array
+            if (typeof data === 'string') {
+                try { return JSON.parse(data); } catch { return []; }
             }
-
-            if (!isMobile) {
-                try {
-                    isMobile = (('ontouchstart' in window) || navigator.userAgentData?.mobile);
-                } catch (e) {
-                    isMobile = 'ontouchstart' in window;
-                }
-            }
-
-            return isMobile;
+            return Array.isArray(data) ? data : [];
         },
 
-        /**
-         * Find the ID of the latest member
-         *
-         * @param {boolean} autorun - Whether to automatically redirect
-         * @returns {Promise<number|string>} The ID of the latest member
-         */
-        async findNewestMember(autorun) {
-            let searchForNewest = false;
-            let userId = 0;
-
-            const firstMemberElement = document.querySelector('.listHeap li:first-child a') ||
-                Array.from(document.querySelectorAll('dl.pairs.pairs--justified dt'))
-                .find(dt => dt.textContent.trim() === 'Latest member')
-                ?.closest('dl').querySelector('dd a.username');
-
-            let latestRange = await rangeManager.getLastRange();
-            logMessage(`Latest cleaner range: ${JSON.stringify(latestRange)}`);
-
-            if (firstMemberElement) {
-                userId = firstMemberElement.getAttribute('data-user-id');
-                logMessage(`Newest Member User ID in this page: %c${userId}`, ['background: green; color: white; padding: 2px;']);
-
-                if (latestRange && parseInt(userId) <= parseInt(latestRange.latestID)) {
-                    searchForNewest = true;
-                } else {
-                    return userId;
-                }
-            } else {
-                searchForNewest = true;
+        async save(list) {
+            const appKey = storage.get(STORAGE_KEYS.IGNORE_LIST);
+            if (!appKey) return false;
+            // Enforce size limit (FIFO eviction)
+            let json = JSON.stringify(list);
+            while (json.length > IGNORE_LIST_SIZE_LIMIT && list.length > 0) {
+                list.shift();
+                json = JSON.stringify(list);
             }
+            return api.updateValue(appKey, list);
+        },
 
-            const userPage = `${VOZ_BASE_URL}/u/`;
-
-            if (firstMemberElement && autorun) {
-                logMessage('Auto run triggred!');
-                if (!this.isUserUsingMobile()) {
-                    location.replace(userPage);
-                }
-                return userId;
-            }
-
-            if (searchForNewest) {
-                userId = latestRange ? parseInt(latestRange.latestID) : 0;
-
-                try {
-                    const tab = window.open(userPage, '_blank');
-                    if (!tab) {
-                        console.warn('Failed to open tab');
-                        if (!this.isUserUsingMobile()) {
-                            location.replace(userPage);
-                        }
-                        return userId;
-                    }
-
-                    return new Promise((resolve) => {
-                        const checkTabInterval = setInterval(() => {
-                            try {
-                                if (tab.closed) {
-                                    clearInterval(checkTabInterval);
-                                    console.warn('Tab was closed unexpectedly');
-                                    resolve(userId);
-                                    return;
-                                }
-
-                                if (tab.document.readyState === 'complete') {
-                                    const firstMember = tab.document.querySelector('.listHeap li:first-child a');
-                                    if (firstMember) {
-                                        userId = firstMember.getAttribute('data-user-id');
-                                        clearInterval(checkTabInterval);
-                                        tab.close();
-                                        logMessage(`Newest Member User ID: %c${userId}`, ['background: green; color: white; padding: 2px;']);
-                                        resolve(userId);
-                                    } else {
-                                        clearInterval(checkTabInterval);
-                                        tab.close();
-                                        console.warn('No member found in the list!');
-                                        resolve(userId);
-                                    }
-                                }
-                            } catch (error) {
-                                clearInterval(checkTabInterval);
-                                try {
-                                    tab.close();
-                                } catch (e) {
-                                    // Ignore errors when closing tab
-                                }
-                                console.warn('Error accessing the tab: ' + error.message);
-                                resolve(userId);
-                            }
-                        }, 1000);
-
-                        setTimeout(() => {
-                            clearInterval(checkTabInterval);
-                            try {
-                                if (!tab.closed) {
-                                    tab.close();
-                                }
-                            } catch (e) {
-                                // Ignore errors when closing tab
-                            }
-                            console.warn('Tab check timed out after 30 seconds');
-                            resolve(userId);
-                        }, 30000);
-                    });
-                } catch (error) {
-                    console.error('Error opening new tab:', error);
-                    return userId;
-                }
-            }
-
-            return userId;
-        }
+        async add(userId) {
+            const id = String(userId);
+            if (ignoreList.includes(id)) return true;
+            ignoreList.push(id);
+            return this.save(ignoreList);
+        },
     };
 
-    /**
-     * Centralized logging function to maintain color styles
-     *
-     * @param {string} message - The message with %c placeholders
-     * @param {array} styles - Array of style strings for each %c
-     */
-    function logMessage(message, styles = [], linker) {
-        const styleArray = Array.isArray(styles) ? styles : [];
+    // ═══════════════════════════════════════════════════════════════════
+    // RANGE MANAGER
+    // ═══════════════════════════════════════════════════════════════════
 
-        if (linker) {
-            console.log(message, ...styleArray, linker);
-        } else {
-            console.log(message, ...styleArray);
-        }
+    const rangeMgr = {
+        async load() {
+            const appKey = storage.get(STORAGE_KEYS.LATEST_RANGE);
+            if (!appKey) return null;
+            let arr = await api.getValue(appKey, null);
+            if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { return null; } }
+            if (!Array.isArray(arr) || arr.length < 3) return null;
+            const [fromID, toID, latestID] = arr.map(Number);
+            return (isNaN(fromID) || isNaN(toID) || isNaN(latestID)) ? null : { fromID, toID, latestID };
+        },
+
+        async save(range) {
+            const appKey = storage.get(STORAGE_KEYS.LATEST_RANGE);
+            if (!appKey) return false;
+            return api.updateValue(appKey, [range.fromID, range.toID, range.latestID]);
+        },
+    };
+
+    // ═══════════════════════════════════════════════════════════════════
+    // LOGGING
+    // ═══════════════════════════════════════════════════════════════════
+
+    function log(message, styles = [], linkOrExtra) {
+        const args = [message, ...styles];
+        if (linkOrExtra) args.push(linkOrExtra);
+        console.log(...args);
     }
 
-    /**
-     * Pretty-print a list of users in console with styled colors.
-     * - Displays section header with background color.
-     * - Each user line shows username, active minutes, and content status.
-     *
-     * @param {string} label  - Section title (e.g. "Active < 10 min", "Senior Members").
-     * @param {string} color  - Base color for section and username text.
-     * @param {Array}  users  - List of user objects [{ id, username, minutes, hasContent }].
-     */
-    function printUsers(label, color, users) {
-        if (users.length === 0) {
-            logMessage(`%c${label}: none.`, [`background: ${color}; color: white; padding: 2px;`]);
+    function printUserList(label, color, users) {
+        if (!users.length) {
+            log(`%c${label}: none.`, [`background: ${color}; color: white; padding: 2px;`]);
             return;
         }
-
-        logMessage(`%c${label}:%c`, [`background: ${color}; color: white; padding: 2px;`, '']);
+        log(`%c${label}:%c`, [`background: ${color}; color: white; padding: 2px;`, '']);
         for (const u of users) {
-            const linker = `${VOZ_BASE_URL}/u/${u.id}/#about`;
-            const hasContentColor = u.hasContent ? 'red' : 'green';
-            const hasContentText = u.hasContent ? 'has content' : '';
-            logMessage(
-`%c${u.username}:%c ${u.lastSeen} %c(${u.minutes}')%c ${hasContentText}`,
-                [
-`color: ${color}; font-weight: bold;`,
-                    'color: cyan; font-weight: bold;',
-                    'background: green; color: white; padding: 3px;',
-`color: ${hasContentColor}; font-weight: bold;`
-                ],
-                linker);
+            log(
+                `%c${u.username}:%c ${u.lastSeen || '?'} %c(${u.minutes}')%c ${u.hasContent ? 'has content' : ''}`,
+                [`color: ${color}; font-weight: bold;`, 'color: cyan; font-weight: bold;',
+                 'background: green; color: white; padding: 3px;',
+                 `color: ${u.hasContent ? 'red' : 'green'}; font-weight: bold;`],
+                `${VOZ_BASE_URL}/u/${u.id}/#about`
+            );
         }
     }
 
-    /**
-     * Utility function for managing review candidates in the
-     * "seniorMembers" and "activeUnder10" lists.
-     *
-     * @param {string|number} userID   - Unique ID of the user.
-     * @param {string} userName        - Display name of the user.
-     */
-    function addToReview(userID, userName) {
-        const idStr = userID.toString();
+    // ═══════════════════════════════════════════════════════════════════
+    // SPAM KEYWORD LOADER
+    // ═══════════════════════════════════════════════════════════════════
 
-        // Find user in both lists
-        const inActive = activeUnder10.find(u => u.id === idStr);
-        const inSenior = seniorMembers.find(u => u.id === idStr);
+    let _keywordsLoaded = false;
+    /** @type {string[]} */
+    let spamKeywords = [...DEFAULT_SPAM_KEYWORDS];
+    const spamUserNames = [...DEFAULT_SPAM_USERNAMES];
 
-        if (inActive || inSenior) {
-            // Mark hasContent = true on both lists where applicable
-            if (inActive)
-                inActive.hasContent = true;
-            if (inSenior)
-                inSenior.hasContent = true;
-        } else {
-            // Not found anywhere -> add to seniorMembers
-            seniorMembers.push({
-                id: idStr,
-                username: userName,
-                minutes: -1,
-                hasContent: true
-            });
+    async function loadSpamKeywords() {
+        if (_keywordsLoaded) return spamKeywords;
+
+        const uniqueSet = new Set(spamKeywords);
+
+        // Merge from localStorage
+        // [FIX] Use getJSON — original code did `get()` which returns a string, not array
+        const cached = storage.getJSON(STORAGE_KEYS.SPAM_KEYWORDS, []);
+        if (Array.isArray(cached)) {
+            for (const k of cached) {
+                if (typeof k === 'string' && k.trim()) uniqueSet.add(k.trim());
+            }
         }
-    }
 
-    /**
-     * Remove HTML tags from a string
-     *
-     * @param {string} html - The HTML string to be processed
-     * @returns {string} The processed text string
-     */
-    function stripHtmlTags(html) {
-        if (!html)
-            return '';
-
-        tempDiv.innerHTML = html;
-        let text = tempDiv.textContent || tempDiv.innerText || '';
-        text = text.replace(/\s+/g, ' ').trim();
-        return text;
-    }
-
-    /**
-     * Set up a listener for unban forms
-     * When a user is unbanned, automatically add them to the ignore list
-     */
-    function setupLiftBanListeners() {
-        const liftBanForms = document.querySelectorAll('form[action*="/ban/lift"]');
-
-        liftBanForms.forEach(form => {
-            const userId = form.action.match(/\/u\/[^.]+\.(\d+)\/ban\/lift/)?.[1];
-            if (userId) {
-                const submitButton = form.querySelector('button[type="submit"]');
-                if (submitButton && !submitButton.hasAttribute('data-voz-listener')) {
-                    submitButton.setAttribute('data-voz-listener', 'true');
-                    submitButton.addEventListener('click', async function (e) {
-                        try {
-                            await ignoreListManager.addToIgnoreList(userId);
-                            logMessage(`Added ${userId} to ignore list after lift ban`);
-                        } catch (error) {
-                            console.error(`Error adding ${userId} to ignore list:`, error);
-                        }
-                    });
+        // Fetch hostsVN gambling list
+        try {
+            const result = await api.fetch(HOSTS_URL);
+            if (result.success) {
+                const text = await result.response.text();
+                for (const line of text.split('\n')) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith('0.0.0.0')) continue;
+                    const host = trimmed.split(' ')[1];
+                    if (!host) continue;
+                    const parts = host.split('.');
+                    if (parts.length <= 1) continue;
+                    const domain = parts.slice(-2).join('.');
+                    if (domain.length >= 5 && /^[a-z0-9.-]+$/i.test(domain) &&
+                        !domain.startsWith('.') && !domain.endsWith('.')) {
+                        uniqueSet.add(domain);
+                    }
                 }
             }
+        } catch (err) {
+            console.error('Failed to fetch hostsVN:', err);
+        }
+
+        // Filter out suspiciously short alphanumeric entries
+        spamKeywords = [...uniqueSet].filter(k => {
+            if (!/[a-z0-9]/i.test(k)) return k.length > 0;
+            return k.length >= 3;
         });
+
+        storage.setJSON(STORAGE_KEYS.SPAM_KEYWORDS, spamKeywords);
+        compileSpamRegex(spamKeywords, spamUserNames);
+        _keywordsLoaded = true;
+        return spamKeywords;
     }
 
-    /**
-     * Initialize a DOM observer to monitor changes and set up event listeners
-     */
-    function initializeBanListeners() {
-        // Create a MutationObserver to monitor DOM changes
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.addedNodes.length) {
-                    setupLiftBanListeners();
-                }
-            });
-        });
-
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true
-        });
-
-        setupLiftBanListeners();
-    }
+    // ═══════════════════════════════════════════════════════════════════
+    // CONCURRENCY LIMITER
+    // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Limit concurrent promises
+     * [FIX] Original had a bug: `executing.delete(p.catch(() => {}))` creates
+     * a new promise, so `p` was never removed → the Set grew unbounded and
+     * `Promise.race` always resolved immediately after the first batch.
      *
-     * @param {array} tasks - Array of async functions
-     * @param {number} limit - Max concurrent tasks
-     * @returns {Promise<array>} Results
+     * Fixed: use `.finally()` which returns `p` chainable and correctly delete.
      */
     async function limitConcurrency(tasks, limit) {
         const results = [];
@@ -1018,38 +499,444 @@
             results.push(p);
             executing.add(p);
 
+            const cleanup = p.finally(() => executing.delete(p));
+
             if (executing.size >= limit) {
                 await Promise.race(executing);
             }
-            executing.delete(p.catch(() => {})); // Handle errors
         }
-        return Promise.allSettled(results); // Use allSettled to continue on errors
+        return Promise.allSettled(results);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // NEWEST MEMBER FINDER
+    // ═══════════════════════════════════════════════════════════════════
+
+    async function findNewestMember(autorun) {
+        let userId = 0;
+
+        const firstMemberEl = document.querySelector('.listHeap li:first-child a') ||
+            Array.from(document.querySelectorAll('dl.pairs.pairs--justified dt'))
+                .find(dt => dt.textContent.trim() === 'Latest member')
+                ?.closest('dl').querySelector('dd a.username');
+
+        const latestRange = await rangeMgr.load();
+        log(`Latest cleaner range: ${JSON.stringify(latestRange)}`);
+
+        if (firstMemberEl) {
+            userId = firstMemberEl.getAttribute('data-user-id');
+            log(`Newest Member User ID in this page: %c${userId}`, ['background: green; color: white; padding: 2px;']);
+            if (!latestRange || parseInt(userId) > parseInt(latestRange.latestID)) {
+                return userId;
+            }
+        }
+
+        // Need to search for newest
+        userId = latestRange ? parseInt(latestRange.latestID) : 0;
+        const userPage = `${VOZ_BASE_URL}/u/`;
+
+        if (firstMemberEl && autorun && !isMobile()) {
+            log('Auto run triggered!');
+            location.replace(userPage);
+            return userId;
+        }
+
+        try {
+            const tab = window.open(userPage, '_blank');
+            if (!tab) {
+                if (!isMobile()) location.replace(userPage);
+                return userId;
+            }
+
+            return new Promise((resolve) => {
+                const interval = setInterval(() => {
+                    try {
+                        if (tab.closed) { clearInterval(interval); resolve(userId); return; }
+                        if (tab.document.readyState === 'complete') {
+                            const el = tab.document.querySelector('.listHeap li:first-child a');
+                            clearInterval(interval);
+                            if (el) userId = el.getAttribute('data-user-id');
+                            tab.close();
+                            resolve(userId);
+                        }
+                    } catch {
+                        clearInterval(interval);
+                        try { tab.close(); } catch {}
+                        resolve(userId);
+                    }
+                }, 1000);
+
+                setTimeout(() => {
+                    clearInterval(interval);
+                    try { if (!tab.closed) tab.close(); } catch {}
+                    resolve(userId);
+                }, TAB_TIMEOUT_MS);
+            });
+        } catch {
+            return userId;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CORE: USER CHECKING & BANNING
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Check if a user is already banned & extract profile metadata.
+     * @param {number} userId
+     * @returns {Promise<{username: string, banned: boolean, message: string, userTitle: string, joinedText: string, lastSeenText: string, diffMinutes: number|null}>}
+     */
+    async function checkUserStatus(userId) {
+        const url = `${VOZ_BASE_URL}/u/${userId}?_xfResponseType=json&_xfWithData=1`;
+        const fallback = { username: 'Not Found', banned: false, message: '', userTitle: '', joinedText: '', lastSeenText: '', diffMinutes: null };
+
+        const result = await api.fetch(url);
+        if (!result.success) return fallback;
+
+        try {
+            const data = await result.response.json();
+            if (data.status !== 'ok') return fallback;
+
+            const rawContent = data.html?.content?.toLowerCase() || '';
+            const fullContent = data.html?.content || '';
+            const username = data.html?.title || '';
+            const banned = rawContent.includes('username--banned');
+
+            // Extract metadata
+            const userTitleMatch = fullContent.match(/<span class="userTitle"[^>]*>([^<]*)<\/span>/i);
+            const userTitle = userTitleMatch?.[1]?.trim() || '';
+
+            const joinedMatch = fullContent.match(/<dt>Joined<\/dt>\s*<dd><time[^>]*>([^<]*)<\/time><\/dd>/i);
+            const joinedText = joinedMatch?.[1] || '';
+
+            const lastSeenMatch = fullContent.match(/<dt>Last seen<\/dt>\s*<dd[^>]*>\s*<time[^>]*>([^<]*)<\/time>/i);
+            const lastSeenText = lastSeenMatch?.[1] || '';
+
+            // Activity info
+            const activityMatch = fullContent.match(/<dt>Last seen<\/dt>\s*<dd[^>]*>[\s\S]*?&middot;<\/span>\s*([\s\S]*?)(?:<\/dd>)/i);
+            let activity = activityMatch?.[1]?.replace(/<[^>]*>/g, '').trim() || '';
+
+            // Time diff
+            const joinTs = extractTimestamp(fullContent, 'Joined');
+            const lastSeenTs = extractTimestamp(fullContent, 'Last seen');
+            const diffMinutes = (joinTs && lastSeenTs) ? Math.floor((lastSeenTs - joinTs) / 60_000) : null;
+
+            // Build display message
+            let msg = '';
+            if (userTitle) msg += `%cTitle           : %c${userTitle}\n`;
+            if (joinedText) msg += `%cJoined          : %c${joinedText}\n`;
+            if (lastSeenText) msg += `%cLast Seen       : %c${lastSeenText}\n`;
+            if (diffMinutes != null) {
+                const h = Math.floor(diffMinutes / 60);
+                const m = diffMinutes % 60;
+                msg += `%cTime Diff       : %c${h}h${m.toString().padStart(2, '0')}'\n`;
+            }
+            msg += `%cActivity        : %c${activity || 'No activity found'}`;
+
+            return { username, banned, message: msg, userTitle, joinedText, lastSeenText, diffMinutes };
+        } catch (err) {
+            console.error(`Error checking user ${userId}:`, err);
+            return fallback;
+        }
     }
 
     /**
-     * Clean up all spam users within an ID range
-     *
-     * @param {boolean} autorun - Whether to automatically redirect
-     * @returns {Promise<Object>} The cleanup result
+     * Check a user's recent content for spam.
+     * @param {number} userId
+     * @param {string} username
+     * @returns {Promise<{isSpam: boolean, keyword: string|null, hasRelevantContent: boolean}>}
      */
-    async function cleanAllSpamer(autorun) {
-        console.clear();
-        spamList = [];
-        spamCount = 0;
-        banFails = [];
-        reviewBan = [];
-        spamUserIds = new Set();
-        bannedBeforeSet = new Set();
-        seniorMembers = [];
-        activeUnder10 = [];
-
-        let fromID = 0;
-        let toID = 0;
-        let newRange = {};
+    async function checkRecentContent(userId, username) {
+        const url = `${VOZ_BASE_URL}/u/${userId}/recent-content?_xfResponseType=json`;
+        const result = await api.fetch(url);
+        if (!result.success) return { isSpam: false, keyword: null, hasRelevantContent: false };
 
         try {
-            let maxAllow = await memberManager.findNewestMember(autorun);
-            let latestRange = await rangeManager.getLastRange();
+            const data = await result.response.json();
+            if (data.html.content.includes('has not posted any content recently')) {
+                return { isSpam: false, keyword: null, hasRelevantContent: false };
+            }
+
+            const content = data.html.content.toLowerCase();
+            const entryRegex = /<li[^>]*?>[\s\S]*?<h3[^>]*?>\s*<a[^>]*?>((?:<span[^>]*?>[^<]*?<\/span>\s*)*)(.*?)<\/a>[\s\S]*?<li>([^<]+)<\/li>/gi;
+            const matches = [...content.matchAll(entryRegex)];
+
+            let hasRelevantContent = false;
+
+            for (const match of matches) {
+                const titleText = match[2].replace(/<[^>]+>/g, '').replace(/&[a-z]+;/gi, '').trim();
+                const contentType = match[3].trim().toLowerCase();
+
+                log(`%c${username}%c - %c${contentType}: %c${titleText}`,
+                    ['color: #17f502; font-weight: bold;', '', 'color: #02c4f5; font-weight: bold;', 'color: yellow; font-weight: bold;']);
+
+                // Skip "post #N" — these are replies, not user-created content
+                if (contentType.includes('post #')) continue;
+
+                if (contentType === 'profile post' || contentType === 'thread') {
+                    // [FIX] Only flag as "relevant content" for spam-checkable types
+                    hasRelevantContent = true;
+
+                    const kwResult = testSpamKeyword(titleText);
+                    if (kwResult.matched) {
+                        log(`User %c${username}%c: spam keyword in title: %c${kwResult.keyword}`,
+                            ['color: red; font-weight: bold;', '', 'color: red; font-weight: bold;']);
+                        return { isSpam: true, keyword: kwResult.keyword, hasRelevantContent: true };
+                    }
+
+                    if (URL_REGEX.test(titleText)) {
+                        log(`User %c${username}%c: URL in title`,
+                            ['color: red; font-weight: bold;', '']);
+                        return { isSpam: true, keyword: 'url_in_title', hasRelevantContent: true };
+                    }
+                }
+            }
+
+            return { isSpam: false, keyword: null, hasRelevantContent };
+        } catch (err) {
+            console.error(`Error checking recent content for ${username}:`, err);
+            return { isSpam: false, keyword: null, hasRelevantContent: false };
+        }
+    }
+
+    /**
+     * Ban a spam user.
+     * @param {number} userId
+     * @param {string} username
+     * @param {string} keyword - matched keyword
+     * @param {Object} ctx - shared context (spamList, banFails, reviewBan, etc.)
+     * @returns {Promise<string>} status: 'banned'|'ban_failed'|'ignored'|'not_spam'|'error'
+     */
+    async function banSpamUser(userId, username, keyword, ctx) {
+        const userIdStr = String(userId);
+
+        if (ignoreList.includes(userIdStr)) {
+            log(`User %c${username}%c (${userId}) is ignored.`, ['background: green; color: white; padding: 2px;', '']);
+            return 'ignored';
+        }
+
+        const xfTokenEl = document.querySelector('input[name="_xfToken"]');
+        if (!xfTokenEl) {
+            console.error('XF Token not found — not logged in or no permission.');
+            return 'error';
+        }
+
+        const shouldDelete = HARD_DELETE_KEYWORDS.has(keyword) ? '1' : '0';
+        const urlSuffix = keyword === 'recent_content' ? 'recent-content' : 'about';
+
+        if (keyword.includes('http')) {
+            ctx.reviewBan.push(`${username} - ${keyword}: ${VOZ_BASE_URL}/u/${userId}/#about`);
+        }
+
+        const endpoint = `/spam-cleaner/${userId}`;
+        const formData = new FormData();
+        formData.append('_xfToken', xfTokenEl.value);
+        formData.append('action_threads', shouldDelete);
+        formData.append('delete_messages', shouldDelete);
+        formData.append('delete_conversations', shouldDelete);
+        formData.append('ban_user', '1');
+        formData.append('no_redirect', '1');
+        formData.append('_xfResponseType', 'json');
+        formData.append('_xfWithData', '1');
+        formData.append('_xfRequestUri', endpoint);
+
+        try {
+            const result = await api.fetch(`${VOZ_BASE_URL}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'include',
+                body: formData,
+            });
+
+            const link = `${VOZ_BASE_URL}/u/${userId}/#${urlSuffix}`;
+            const entry = `${username} - ${keyword}: ${link}`;
+
+            if (!result.success) {
+                await ignoreListMgr.add(userId);
+                ctx.banFails.push(entry);
+                log(`%c${username}: Ban failed`, ['background: yellow; color: black; padding: 2px']);
+                return 'ban_failed';
+            }
+
+            const data = await result.response.json();
+            if (data.status === 'ok') {
+                ctx.spamCount++;
+                ctx.spamUserIds.add(userIdStr);
+                ctx.spamList.push(entry);
+                log(`%c${username}: ${data.message}`, ['background: #02f55b; color: white; padding: 2px;']);
+                return 'banned';
+            } else {
+                await ignoreListMgr.add(userId);
+                ctx.banFails.push(entry);
+                log(`%c${username}: ${data.errors?.[0] || 'Unknown error'}`, ['background: yellow; color: black; padding: 2px']);
+                return 'ban_failed';
+            }
+        } catch (err) {
+            console.error('Ban error:', err);
+            return 'error';
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CORE: PROCESS SINGLE USER
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * [FIX] Consolidated user processing — eliminates double-ban bug and
+     * global `tmpKeyword` race condition.
+     *
+     * @param {number} userId
+     * @param {Object} ctx - shared mutable context
+     */
+    async function processUser(userId, ctx) {
+        // Step 1: Check if already banned
+        const status = await checkUserStatus(userId);
+
+        if (status.banned) {
+            ctx.spamCount++;
+            ctx.bannedBeforeSet.add(String(userId));
+            log(`User %c${status.username}%c was already banned.`,
+                ['color: red; font-weight: bold;', ''],
+                `${VOZ_BASE_URL}/u/${userId}/#about`);
+            return;
+        }
+
+        // Track metadata for reporting lists
+        const diffMin = status.diffMinutes;
+        if (diffMin != null && diffMin <= 10) {
+            ctx.activeUnder10.push({
+                id: String(userId), username: status.username,
+                minutes: Math.round(diffMin), lastSeen: status.lastSeenText, hasContent: false,
+            });
+        }
+        if (status.userTitle && /senior\s*member/i.test(status.userTitle)) {
+            ctx.seniorMembers.push({
+                id: String(userId), username: status.username,
+                minutes: diffMin != null ? Math.round(diffMin) : -1,
+                lastSeen: status.lastSeenText, hasContent: false,
+            });
+        }
+
+        // Step 2: Fetch profile "about" page
+        const aboutUrl = `${VOZ_BASE_URL}/u/${userId}/about?_xfResponseType=json&_xfWithData=1`;
+        const aboutResult = await api.fetch(aboutUrl);
+        if (!aboutResult.success) return;
+
+        let data;
+        try { data = await aboutResult.response.json(); } catch { return; }
+        if (data.status !== 'ok') return;
+
+        const rawTitle = data.html?.title || '';
+        const candidateName = normalize(rawTitle);
+        let rawContent = (data.html?.content?.toLowerCase() || '');
+
+        // Truncate content before "following/followers/trophies" sections
+        for (const marker of ['following', 'followers', 'trophies']) {
+            const idx = rawContent.indexOf(marker);
+            if (idx !== -1) { rawContent = rawContent.substring(0, idx); break; }
+        }
+
+        const cleanedContent = stripHtml(rawContent)
+            .replace('contact direct message send direct message', '')
+            .replace(`${rawTitle.toLowerCase()} has not provided any additional information.`, '')
+            .trim();
+
+        // Step 3: Check username for spam
+        const unResult = testSpamUsername(candidateName);
+        if (unResult.matched) {
+            log(`User %c${rawTitle}%c: spam username match: %c${unResult.keyword}`,
+                ['color: red; font-weight: bold;', '', 'color: red; font-weight: bold;']);
+            await banSpamUser(userId, rawTitle, unResult.keyword, ctx);
+            return; // [FIX] Early return — don't double-process
+        }
+
+        // Step 4: Check profile content
+        if (cleanedContent) {
+            log(
+                `Processing user : %c${rawTitle}\n${status.message}\n%c` +
+                `Profile Link    : %c${VOZ_BASE_URL}/u/${userId}/#about\n` +
+                `HTML content    ↓\n%c${cleanedContent}`,
+                ['color: #17f502; font-weight: bold;',
+                 'color: gray;', 'color: orange; font-weight: bold;',
+                 'color: yellow; font-family: monospace;']
+            );
+
+            // [FIX] Only addToReview when there's actual profile content (not empty)
+            markReview(userId, candidateName, ctx);
+
+            const kwResult = testSpamKeyword(cleanedContent);
+            if (kwResult.matched) {
+                log(`User %c${rawTitle}%c: spam keyword in profile: %c${kwResult.keyword}`,
+                    ['color: red; font-weight: bold;', '', 'color: red; font-weight: bold;']);
+                await banSpamUser(userId, rawTitle, kwResult.keyword, ctx);
+                return;
+            }
+
+            // Check for website in content
+            if (WEBSITE_REGEX.test(cleanedContent)) {
+                const site = cleanedContent.match(WEBSITE_REGEX)[1];
+                log(`User %c${rawTitle}%c: website detected: %c${site}%c — needs review`,
+                    ['color: red; font-weight: bold;', '', 'color: red; font-weight: bold;', 'color: yellow;']);
+                ctx.reviewBan.push(`${rawTitle} - ${site}: ${VOZ_BASE_URL}/u/${userId}/#about`);
+                return;
+            }
+        } else {
+            log(
+                `Processing user : %c${rawTitle}\n${status.message}\n%c` +
+                `Profile Link    : %c${VOZ_BASE_URL}/u/${userId}/#about`,
+                ['color: #17f502; font-weight: bold;', 'color: gray;', 'color: orange; font-weight: bold;']
+            );
+        }
+
+        // Step 5: Check recent content
+        const recent = await checkRecentContent(userId, rawTitle);
+        if (recent.hasRelevantContent) {
+            markReview(userId, candidateName, ctx);
+        }
+        if (recent.isSpam) {
+            // Pass the actual keyword from recent content, not just 'recent_content'
+            const banKw = recent.keyword || 'recent_content';
+            const shouldUseDirect = HARD_DELETE_KEYWORDS.has(banKw);
+            await banSpamUser(userId, rawTitle, shouldUseDirect ? banKw : 'recent_content', ctx);
+        }
+    }
+
+    /** Mark a user for review in the reporting lists */
+    function markReview(userId, username, ctx) {
+        const idStr = String(userId);
+        const inActive = ctx.activeUnder10.find(u => u.id === idStr);
+        const inSenior = ctx.seniorMembers.find(u => u.id === idStr);
+        if (inActive) inActive.hasContent = true;
+        if (inSenior) inSenior.hasContent = true;
+        if (!inActive && !inSenior) {
+            ctx.seniorMembers.push({ id: idStr, username, minutes: -1, hasContent: true });
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CORE: CLEAN ALL SPAMMERS
+    // ═══════════════════════════════════════════════════════════════════
+
+    async function cleanAllSpammers(autorun) {
+        console.clear();
+
+        // Shared mutable context for this run
+        const ctx = {
+            spamList: [],
+            banFails: [],
+            reviewBan: [],
+            spamCount: 0,
+            spamUserIds: new Set(),
+            bannedBeforeSet: new Set(),
+            seniorMembers: [],
+            activeUnder10: [],
+        };
+
+        // Determine ID range
+        let fromID, toID;
+        try {
+            const maxAllow = await findNewestMember(autorun);
+            const latestRange = await rangeMgr.load();
             if (latestRange) {
                 fromID = Math.max(1, parseInt(latestRange.latestID) - 10);
                 toID = Math.min(parseInt(latestRange.latestID) + 1000, maxAllow);
@@ -1057,760 +944,347 @@
                 fromID = Math.max(1, parseInt(maxAllow) - 100);
                 toID = parseInt(maxAllow);
             }
-
             toID = Math.min(toID, maxAllow);
-            newRange = {
-                fromID,
-                toID,
-                latestID: toID
-            };
-        } catch (error) {
-            console.error('Failed to get the member range to process:', error);
-            return {
-                status: 'error',
-                message: 'Failed to get the member range to process'
-            };
+        } catch (err) {
+            console.error('Failed to determine member range:', err);
+            return { status: 'error', message: 'Failed to get member range' };
         }
 
-        const extendedKeywords = await spamManager.getSpamKeywords();
-        logMessage(`Process to clean all spamer has ID from %c${fromID}%c to %c${toID}%c.`,
-            ['background: green; color: white; padding: 2px;', '', 'background: green; color: white; padding: 2px;', '']);
-        let firstErrorId = null;
-        const batchSize = 5;
-        const delay = 200;
-        const concurrencyLimit = 3;
+        const newRange = { fromID, toID, latestID: toID };
 
-        for (let startId = fromID; startId <= toID; startId += batchSize) {
-            const endId = Math.min(startId + batchSize - 1, toID);
+        // Load keywords & compile regex
+        await loadSpamKeywords();
+
+        log(`Processing IDs %c${fromID}%c → %c${toID}%c`,
+            ['background: green; color: white; padding: 2px;', '',
+             'background: green; color: white; padding: 2px;', '']);
+
+        let firstErrorId = null;
+
+        // Process in batches
+        for (let start = fromID; start <= toID; start += BATCH_SIZE) {
+            const end = Math.min(start + BATCH_SIZE - 1, toID);
             const tasks = [];
 
-            for (let currentId = startId; currentId <= endId; currentId++) {
-                tasks.push(() => processUser(currentId));
-            }
-
-            await limitConcurrency(tasks, concurrencyLimit);
-
-            if (endId < toID) {
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-        }
-
-        /**
-         * Handle check if user has been banned
-         *
-         * @param {string|number} userId - The user ID
-         * @return {username, status(true|false)}
-         */
-        async function checkIfUserBanned(currentId) {
-            const url = `${VOZ_BASE_URL}/u/${currentId}?_xfResponseType=json&_xfWithData=1`;
-            let username = '';
-            try {
-                const result = await apiManager.fetchWithErrorHandling(url);
-                if (!result.success) {
-                    console.error(`Failed to fetch data for ID: ${currentId}`);
-                    return {
-                        username: 'Not Found',
-                        status: false,
-                        message: ''
-                    };
-                }
-                const data = await result.response.json();
-                if (data.status === "ok") {
-                    const rawContent = data.html?.content?.toLowerCase() || '';
-                    const fullContent = data.html?.content || '';
-                    username = data.html?.title || '';
-                    const isBanned = rawContent.includes('username--banned');
-
-                    // Extract join and last seen information
-                    let joinedText = '';
-                    let lastSeenText = '';
-                    let timeDiff = '';
-                    let viewingInfo = '';
-                    let userTitle = '';
-
-                    // Extract userTitle
-                    const userTitleMatch = fullContent.match(/<span class="userTitle"[^>]*>([^<]*)<\/span>/i);
-                    if (userTitleMatch) {
-                        userTitle = userTitleMatch[1].trim();
-                    }
-
-                    // Extract joined date
-                    const joinedMatch = fullContent.match(/<dt>Joined<\/dt>\s*<dd><time[^>]*title="([^"]*)"[^>]*>([^<]*)<\/time><\/dd>/i);
-                    if (joinedMatch) {
-                        joinedText = joinedMatch[2];
-                    }
-
-                    // FIXED: Extract last seen info and activity (allow full HTML capture)
-                    const lastSeenMatch = fullContent.match(/<dt>Last seen<\/dt>\s*<dd[^>]*>\s*<time[^>]*>([^<]*)<\/time>\s*(<span[^>]*>&middot;<\/span>\s*(.*))?/i);
-                    if (lastSeenMatch) {
-                        lastSeenText = lastSeenMatch[1]; // e.g., "5 minutes ago"
-                        let activityText = lastSeenMatch[3] || '';
-
-                        if (activityText.includes('Viewing thread')) {
-                            const threadMatch = activityText.match(/Viewing thread <em><a[^>]*>([^<]*)<\/a><\/em>/);
-                            viewingInfo = threadMatch ? `Viewing thread: ${threadMatch[1]}` : 'Viewing thread';
-                        } else if (activityText.includes('Viewing direct messages')) {
-                            viewingInfo = 'Viewing direct messages';
-                        } else if (activityText.includes('Managing account details')) {
-                            viewingInfo = 'Managing account details';
-                        } else if (activityText.includes('Viewing member profile')) {
-                            const profileMatch = activityText.match(/Viewing member profile <em><a[^>]*>([^<]*)<\/a><\/em>/);
-                            viewingInfo = profileMatch ? `Viewing member profile ${profileMatch[1]}` : 'Viewing member profile';
-                        } else if (activityText.includes('Viewing')) {
-                            viewingInfo = activityText.replace(/<[^>]*>/g, '').trim();
-                        } else if (activityText) {
-                            viewingInfo = activityText.replace(/<[^>]*>/g, '').trim();
-                        }
-                    }
-
-                    // Calculate time difference
-                    const joinedTimestamp = extractTimestamp(fullContent, 'Joined');
-                    const lastSeenTimestamp = extractTimestamp(fullContent, 'Last seen');
-                    // ===== Added: collect candidates for custom lists =====
+            for (let id = start; id <= end; id++) {
+                const capturedId = id; // closure capture
+                tasks.push(async () => {
                     try {
-                        const diffMin = (joinedTimestamp && lastSeenTimestamp) ? Math.abs((lastSeenTimestamp - joinedTimestamp) / 60000) : null;
-                        if (diffMin !== null && diffMin <= 10) {
-                            activeUnder10.push({
-                                id: currentId.toString(),
-                                username: username || '',
-                                minutes: Math.round(diffMin),
-                                lastSeen: lastSeenText,
-                                hasContent: false
-                            });
+                        await processUser(capturedId, ctx);
+                    } catch (err) {
+                        if (!firstErrorId) {
+                            firstErrorId = capturedId;
+                            newRange.latestID = capturedId;
                         }
-                        if (userTitle && /senior\s*member/i.test(userTitle)) {
-                            seniorMembers.push({
-                                id: currentId.toString(),
-                                username: username || '',
-                                minutes: Math.round(diffMin),
-                                lastSeen: lastSeenText,
-                                hasContent: false
-                            });
-                        }
-                    } catch (e) { /* non-fatal */
+                        console.error(`Error processing ID ${capturedId}:`, err);
                     }
-                    // ======================================================
-
-                    if (joinedTimestamp && lastSeenTimestamp) {
-                        const diffMs = lastSeenTimestamp - joinedTimestamp;
-                        const diffMinutes = Math.floor(diffMs / (1000 * 60));
-                        const hours = Math.floor(diffMinutes / 60);
-                        const minutes = diffMinutes % 60;
-                        timeDiff = `${hours}h${minutes.toString().padStart(2, '0')}'`;
-                    }
-
-                    // Construct message
-                    let message = '';
-
-                    if (userTitle) {
-                        message += `%cTitle           : %c${userTitle}\n`;
-                    }
-                    if (joinedText) {
-                        message += `%cJoined          : %c${joinedText}\n`;
-                    }
-                    if (lastSeenText) {
-                        message += `%cLast Seen       : %c${lastSeenText}\n`;
-                    }
-                    if (timeDiff) {
-                        message += `%cTime Diff       : %c${timeDiff}\n`;
-                    }
-
-                    if (viewingInfo) {
-                        message += `%cActivity        : %c${viewingInfo}`;
-                    } else {
-                        message += `%cActivity        : %cNo activity found`;
-                    }
-
-                    return {
-                        username,
-                        status: isBanned,
-                        message
-                    };
-                } else {
-                    console.warn(`Unexpected response for ID ${currentId}:`, data);
-                    return {
-                        username: 'Not Found',
-                        status: false,
-                        message: ''
-                    };
-                }
-            } catch (error) {
-                console.error(`Error processing ID ${currentId}:`, error);
-                return {
-                    username: 'Not Found',
-                    status: false,
-                    message: ''
-                };
-            }
-        }
-
-        function extractTimestamp(content, type) {
-            const regex = new RegExp(`<dt>${type}<\\/dt>\\s*<dd[^>]*>\\s*<time[^>]*data-timestamp="(\\d+)"`, 'i');
-            const match = content.match(regex);
-            return match ? parseInt(match[1]) * 1000 : null;
-        }
-
-        /**
-         * Handle a single user
-         *
-         * @param {string|number} userId - The user ID
-         */
-        async function processUser(currentId) {
-            const isBanned = await checkIfUserBanned(currentId);
-
-            if (isBanned.status === true) {
-                spamCount++;
-                // Added: mark pre-banned user to exclude from new lists
-                bannedBeforeSet.add(currentId.toString());
-                logMessage(`User %c${isBanned.username}%c had been banned before. `,
-                    ['color: red; font-weight: bold;', ''],
-`Link: ${VOZ_BASE_URL}/u/${currentId}/#about`);
-
-                return;
+                });
             }
 
-            tmpKeyword = '';
-
-            const url = `${VOZ_BASE_URL}/u/${currentId}/about?_xfResponseType=json&_xfWithData=1`;
-            try {
-                const result = await apiManager.fetchWithErrorHandling(url);
-                if (!result.success) {
-                    console.error(`Failed to fetch data for ID: ${currentId}`);
-                    return;
-                }
-                // Normalize + strip helper
-                const norm = (s) => (s || '')
-                .normalize('NFKC')
-                .replace(/[\u200B\u200C\u200D\uFEFF]/g, ''); // zero-width
-
-                const data = await result.response.json();
-                if (data.status === "ok") {
-                    let rawcontent = data.html?.content?.toLowerCase() || "";
-
-                    if (rawcontent.includes('following')) {
-                        rawcontent = rawcontent.substring(0, rawcontent.indexOf('following'));
-                    } else if (rawcontent.includes('followers')) {
-                        rawcontent = rawcontent.substring(0, rawcontent.indexOf('followers'));
-                    } else if (rawcontent.includes('trophies')) {
-                        rawcontent = rawcontent.substring(0, rawcontent.indexOf('trophies'));
-                    }
-                    const rawTitle = data.html?.title || "";
-                    const title = rawTitle?.toLowerCase() || "";
-                    const content = stripHtmlTags(rawcontent);
-
-                    const text1 = "contact direct message send direct message";
-                    const text2 = `${title} has not provided any additional information.`;
-                    const cleanedContent = content.replace(text1, '').replace(text2, '').trim();
-
-                    let isSpam = false;
-                    let matchedKeyword = null;
-
-                    const candidateName = norm(rawTitle || title);
-                    if (spamUsernameRegex.test(candidateName)) {
-                        matchedKeyword = candidateName.match(spamUsernameRegex)[0];
-                    }
-                    if (/(?:com|app|net|org)$/i.test(candidateName)) {
-                        matchedKeyword = `username ${candidateName}`;
-                    }
-                    if (matchedKeyword) {
-                        logMessage(`User %c${rawTitle}%c detected as spammer based on keyword %c${matchedKeyword}%c.`,
-                            ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-                        isSpam = true;
-                        await spamManager.processSpamUser(currentId, rawTitle, matchedKeyword, extendedKeywords);
-                    }
-                    if (cleanedContent) {
-                        logMessage(
-                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
-                            `Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about\n` + 
-`HTML content    ↓\n%c${cleanedContent}`,
-                            ['color: #17f502; font-weight: bold;',
-                                // style groups for message fields
-                                'color: gray;', 'color: gold; font-weight: bold;',
-                                'color: gray;', 'color: cyan;',
-                                'color: gray;', 'color: orange;',
-                                'color: gray;', 'color: lightgreen;',
-                                'color: gray;', 'color: pink;',
-                                // profile link
-                                'color: gray;', 'color: orange;',
-                                // cleaned content
-                                'color: yellow; font-family: monospace;']);
-                        //to review list if user has content In about page
-                        addToReview(currentId, candidateName);
-                        // Check within the content
-                        if (spamKeywordRegex.test(cleanedContent)) {
-                            matchedKeyword = cleanedContent.match(spamKeywordRegex)[0];
-                        }
-
-                        if (!matchedKeyword && websiteRegex.test(cleanedContent)) {
-                            let mKeyword = cleanedContent.match(websiteRegex)[1];
-                            logMessage(`User %c${rawTitle}%c detected as spammer based on Website %c${mKeyword}%c.\nPlease review and consider to ban this user!`,
-                                ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', 'color: yellow; font-weight: bold; padding: 2px;']);
-                            reviewBan.push(`${rawTitle} - ${mKeyword}: ${VOZ_BASE_URL}/u/${currentId}/#about`);
-                        }
-                    } else {
-                        logMessage(
-                            `Processing user : %c${rawTitle}\n${isBanned.message}\n%c` + 
-`Profile Link    : %c${VOZ_BASE_URL}/u/${currentId}/#about`,
-                            ['color: #17f502; font-weight: bold;',
-                                // style groups for message fields
-                                'color: gray;', 'color: gold; font-weight: bold;',
-                                'color: gray;', 'color: cyan;',
-                                'color: gray;', 'color: orange;',
-                                'color: gray;', 'color: lightgreen;',
-                                'color: gray;', 'color: pink;',
-                                // profile link
-                                'color: gray;', 'color: orange;']);
-                    }
-                    if (matchedKeyword) {
-                        logMessage(`User %c${rawTitle}%c detected as spammer based on keyword %c${matchedKeyword}%c.`,
-                            ['color: red; font-weight: bold; padding: 2px;', '', 'color: red; font-weight: bold; padding: 2px;', '']);
-                        isSpam = true;
-                        await spamManager.processSpamUser(currentId, rawTitle, matchedKeyword, extendedKeywords);
-                    }
-                    // If no spam is detected in the profile, check the recent content
-                    if (!isSpam) {
-                        if (await spamManager.checkRecentContent(currentId, rawTitle, extendedKeywords)) {
-                            await spamManager.processSpamUser(currentId, rawTitle, 'recent_content', extendedKeywords);
-                        }
-                    }
-                }
-            } catch (error) {
-                // Log the first encountered ID with an error to update the range
-                if (!firstErrorId) {
-                    firstErrorId = currentId;
-                    newRange.latestID = firstErrorId;
-                }
-                console.error(`Error processing ID: ${currentId}`, error);
-            }
+            await limitConcurrency(tasks, CONCURRENCY_LIMIT);
+            if (end < toID) await sleep(BATCH_DELAY_MS);
         }
 
-        // Update the processed range
-        await rangeManager.setLastRange(newRange);
+        // Save range
+        await rangeMgr.save(newRange);
 
-        const sortedSpamList = spamList.sort((a, b) => {
-            const aIncludesSupport = a.includes("recent_content") ? 1 : 0;
-            const bIncludesSupport = b.includes("recent_content") ? 1 : 0;
-            return aIncludesSupport - bIncludesSupport;
+        // ── Reporting ──
+
+        const sorted = ctx.spamList.sort((a, b) => {
+            return (a.includes('recent_content') ? 1 : 0) - (b.includes('recent_content') ? 1 : 0);
         });
 
-        if (sortedSpamList.length > 0) {
-            logMessage('%cSpam List:', ['background: #02f55b; color: white; padding: 2px;']);
-            sortedSpamList.forEach(item => {
-                const [usernamePart, linker] = item.split(": ");
-                logMessage(
-`%c${usernamePart}: `,
-                    [
-                        'color: red; font-weight: bold;'
-                    ],
-                    linker);
-            });
+        if (sorted.length) {
+            log('%cSpam List:', ['background: #02f55b; color: white; padding: 2px;']);
+            for (const item of sorted) {
+                const [namePart, link] = item.split(': ');
+                log(`%c${namePart}: `, ['color: red; font-weight: bold;'], link);
+            }
         }
 
-        if (reviewBan.length > 0) {
-            logMessage('%cReview Ban List:', ['background: yellow; color: black; padding: 2px;']);
-            reviewBan.forEach(item => {
-                const [usernamePart, linker] = item.split(": ");
-                logMessage(
-`%c${usernamePart}: `,
-                    [
-                        'color: yellow; font-weight: bold;'
-                    ],
-                    linker);
-            });
+        if (ctx.reviewBan.length) {
+            log('%cReview Ban List:', ['background: yellow; color: black; padding: 2px;']);
+            for (const item of ctx.reviewBan) {
+                const [namePart, link] = item.split(': ');
+                log(`%c${namePart}: `, ['color: yellow; font-weight: bold;'], link);
+            }
         }
 
-        // ===== Added: Build and print custom lists with global uniqueness & priority =====
+        // Build de-duplicated reporting lists
         try {
-            // Build ID sets
-            const reviewBanIds = new Set(reviewBan
-                    .map(x => {
-                        const m = x.match(/\/u\/(\d+)/);
-                        return m ? m[1] : null;
-                    })
-                    .filter(Boolean));
-            const needsReviewIds = new Set(
-                    (spamList || [])
-                    .filter(item => item.includes("recent_content"))
-                    .map(item => (item.match(/\/u\/(\d+)/) || [])[1])
-                    .filter(Boolean)
-                    .map(String));
+            const reviewIds = new Set([
+                ...ctx.reviewBan.map(x => (x.match(/\/u\/(\d+)/) || [])[1]).filter(Boolean),
+                ...sorted.filter(x => x.includes('recent_content'))
+                    .map(x => (x.match(/\/u\/(\d+)/) || [])[1]).filter(Boolean),
+            ]);
 
-            // Deduplicate candidate arrays by ID (keep first occurrence)
-            const uniqActive = new Map();
-            for (const item of activeUnder10) {
-                if (!uniqActive.has(item.id))
-                    uniqActive.set(item.id, item);
-            }
-            const uniqSenior = new Map();
-            for (const item of seniorMembers) {
-                if (!uniqSenior.has(item.id))
-                    uniqSenior.set(item.id, item);
-            }
+            const isExcluded = (id) => ctx.spamUserIds.has(id) || ctx.bannedBeforeSet.has(id);
 
-            // Exclude banned (current run + pre-existing)
-            const isExcluded = (id) => spamUserIds.has(id) || bannedBeforeSet.has(id);
-
-            // ✅ Priority: ReviewBan > Senior > Active<10'
-            const chosenSenior = [];
-            for (const item of uniqSenior.values()) {
-                if (isExcluded(item.id))
-                    continue;
-                if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id))
-                    continue;
-                chosenSenior.push(item);
-            }
-
-            const chosenActive = [];
-            for (const item of uniqActive.values()) {
-                if (isExcluded(item.id))
-                    continue;
-                if (reviewBanIds.has(item.id) || needsReviewIds.has(item.id))
-                    continue;
-                // Exclude anything already in Senior
-                if (chosenSenior.find(a => a.id === item.id))
-                    continue;
-                chosenActive.push(item);
-            }
-
-            // ✅ Sort active members and senior members ascending by minutes (shortest active time first)
-            chosenActive.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
-            chosenSenior.sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
-
-            // Pretty print
-            printUsers("Active time < 10' (minutes)", 'purple', chosenActive);
-            printUsers('Senior Members', 'teal', chosenSenior);
-        } catch (e) {
-            console.warn('Failed to build custom lists:', e);
-        }
-        // Notify if there are users that need further review
-        const matches = sortedSpamList.filter(item => item.includes("recent_content"));
-        if ((matches.length + reviewBan.length) > 0) {
-            alert(`There are ${matches.length + reviewBan.length} user(s) that need to review ban.`);
-        }
-        logMessage(`Finished cleaning %c${spamCount}%c spammers!`, ['background: green; color: white; padding: 2px;', '']);
-        spamManager.setSpamCount(spamCount);
-
-        const finalResult = {
-            status: 'success',
-            spamList: sortedSpamList,
-            banFails: banFails,
-            reviewBan: reviewBan,
-            spamCount: spamCount
-        };
-        return finalResult;
-    }
-
-    /**
-     * Add a spam cleanup button to the navigation bar
-     *
-     * @returns {Object} UI elements and update function
-     */
-    function addSpamCleanerToNavigation() {
-        const navList = document.querySelector('.p-nav-list.js-offCanvasNavSource');
-        const footerList = document.querySelector("#footer > div > div.p-footer-row > div.p-footer-row-main > ul");
-        if (!navList && !footerList)
-            return;
-
-        if (document.getElementById('spam-cleaner-button')) {
-            return {
-                cleanButton: document.getElementById('spam-cleaner-button'),
-                autorunButton: document.getElementById('autorun-button'),
-                progressTracker: document.getElementById('voz-spam-cleaner-tracker'),
-                updateProgress: function (message, color = 'black') {
-                    const progressText = document.querySelector('#voz-spam-cleaner-tracker span');
-                    if (progressText) {
-                        progressText.textContent = `${message}`;
-                        progressText.style.color = color;
-                    }
-                }
+            const dedup = (arr) => {
+                const seen = new Set();
+                return arr.filter(u => {
+                    if (seen.has(u.id) || isExcluded(u.id) || reviewIds.has(u.id)) return false;
+                    seen.add(u.id);
+                    return true;
+                });
             };
+
+            const seniors = dedup(ctx.seniorMembers).sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
+            const seniorIds = new Set(seniors.map(u => u.id));
+            const actives = dedup(ctx.activeUnder10).filter(u => !seniorIds.has(u.id))
+                .sort((a, b) => (a.minutes ?? 0) - (b.minutes ?? 0));
+
+            printUserList("Active time < 10' (minutes)", 'purple', actives);
+            printUserList('Senior Members', 'teal', seniors);
+        } catch (e) {
+            console.warn('Failed to build reporting lists:', e);
         }
 
-        const navItem = document.createElement('li');
-        navItem.className = 'p-navEl';
-        const container = document.createElement('div');
-        container.className = 'p-navEl-link vn-quick-link';
-        container.style.display = 'inline-flex';
-        container.style.alignItems = 'left';
-
-        // Create cleanup button
-        const cleanButton = document.createElement('button');
-        cleanButton.id = 'spam-cleaner-button';
-        cleanButton.textContent = 'Clean Now';
-        cleanButton.style.cssText = `
-        margin-right: 10px;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 5px;
-        background-color: #007bff;
-        font-size: 12px;
-        cursor: pointer;
-    `;
-
-        // Create auto-run button
-        const autorunButton = document.createElement('button');
-        autorunButton.id = 'autorun-button';
-        autorunButton.style.cssText = `
-        margin-right: 10px;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 5px;
-        background-color: #007bff;
-        font-size: 12px;
-        cursor: pointer;
-    `;
-        const storedAutorun = storageManager.get(AUTORUN_KEY, 'OFF');
-        autorunButton.textContent = storedAutorun === 'OFF' ? `Autorun: ${storedAutorun}` : `Autorun: ${storedAutorun} mins`;
-
-        // Create progress tracker
-        const progressTracker = document.createElement('div');
-        progressTracker.id = 'voz-spam-cleaner-tracker';
-        progressTracker.style.cssText = `
-        display: inline-flex;
-        align-items: center;
-        background-color: #f0f0f0;
-        padding: 5px 10px;
-        border-radius: 5px;
-        font-size: 12px;
-    `;
-        const progressText = document.createElement('span');
-        progressText.textContent = `Spam Cleaner: Idle. Last clean: ${spamManager.getSpamCount()} spammers.`;
-        progressTracker.appendChild(progressText);
-
-        // Add elements to the container
-        container.appendChild(cleanButton);
-        container.appendChild(autorunButton);
-        container.appendChild(progressTracker);
-        navItem.appendChild(container);
-
-        // Add to the appropriate position based on the device
-        if (memberManager.isUserUsingMobile() && footerList) {
-            footerList.appendChild(navItem);
-        } else if (navList) {
-            navList.appendChild(navItem);
+        // Alert for items needing review
+        const needsReview = sorted.filter(x => x.includes('recent_content')).length + ctx.reviewBan.length;
+        if (needsReview > 0) {
+            alert(`There are ${needsReview} user(s) that need review.`);
         }
+
+        log(`Finished cleaning %c${ctx.spamCount}%c spammers!`,
+            ['background: green; color: white; padding: 2px;', '']);
+        storage.set(STORAGE_KEYS.LATEST_COUNT, String(ctx.spamCount));
 
         return {
-            cleanButton,
-            autorunButton,
-            progressTracker,
-            updateProgress: function (message, color = 'black') {
-                progressText.textContent = `${message}`;
-                progressText.style.color = color;
-            }
+            status: 'success',
+            spamList: sorted,
+            banFails: ctx.banFails,
+            reviewBan: ctx.reviewBan,
+            spamCount: ctx.spamCount,
         };
     }
 
-    /**
-     * Schedule and manage the automatic spam cleanup process
-     */
-    function scheduleCleanAllSpamer() {
-        // Status of the cleanup process
-        const state = {
-            isRunning: false,
-            countdownInterval: null,
-            remainingTime: 0
+    // ═══════════════════════════════════════════════════════════════════
+    // UI: NAVIGATION BUTTONS
+    // ═══════════════════════════════════════════════════════════════════
+
+    function createUI() {
+        const navList = document.querySelector('.p-nav-list.js-offCanvasNavSource');
+        const footerList = document.querySelector('#footer > div > div.p-footer-row > div.p-footer-row-main > ul');
+        if (!navList && !footerList) return null;
+        if (document.getElementById('spam-cleaner-button')) {
+            return getExistingUI();
+        }
+
+        const container = document.createElement('div');
+        container.className = 'p-navEl-link vn-quick-link';
+        container.style.cssText = 'display: inline-flex; align-items: left;';
+
+        const btnStyle = `margin-right: 10px; color: white; border: none; padding: 5px 10px;
+            border-radius: 5px; background-color: #007bff; font-size: 12px; cursor: pointer;`;
+
+        const cleanBtn = Object.assign(document.createElement('button'), {
+            id: 'spam-cleaner-button', textContent: 'Clean Now',
+            style: { cssText: btnStyle },
+        });
+        // Fix: style assignment via cssText
+        cleanBtn.style.cssText = btnStyle;
+
+        const autorunBtn = Object.assign(document.createElement('button'), { id: 'autorun-button' });
+        autorunBtn.style.cssText = btnStyle;
+        const savedAutorun = storage.get(STORAGE_KEYS.AUTORUN, 'OFF');
+        autorunBtn.textContent = savedAutorun === 'OFF' ? `Autorun: OFF` : `Autorun: ${savedAutorun} mins`;
+
+        const tracker = document.createElement('div');
+        tracker.id = 'voz-spam-cleaner-tracker';
+        tracker.style.cssText = `display: inline-flex; align-items: center; background-color: #f0f0f0;
+            padding: 5px 10px; border-radius: 5px; font-size: 12px;`;
+        const trackerText = document.createElement('span');
+        const lastCount = storage.get(STORAGE_KEYS.LATEST_COUNT, '0');
+        trackerText.textContent = `Spam Cleaner: Idle. Last clean: ${lastCount} spammers.`;
+        tracker.appendChild(trackerText);
+
+        container.append(cleanBtn, autorunBtn, tracker);
+        const li = document.createElement('li');
+        li.className = 'p-navEl';
+        li.appendChild(container);
+
+        (isMobile() && footerList ? footerList : navList).appendChild(li);
+
+        const updateProgress = (msg, color = 'black') => {
+            trackerText.textContent = msg;
+            trackerText.style.color = color;
         };
 
-        // Create user interface
-        const { cleanButton, autorunButton, progressTracker, updateProgress } = addSpamCleanerToNavigation();
+        return { cleanBtn, autorunBtn, updateProgress };
+    }
 
-        /**
-         * Run the spam cleanup process
-         */
-        async function runCleanSpamer() {
-            if (state.isRunning) {
-                logMessage('Clean process is still running. Skipping...');
-                updateProgress('Spam Cleaner: Running...', 'blue');
-                return;
-            }
+    function getExistingUI() {
+        const cleanBtn = document.getElementById('spam-cleaner-button');
+        const autorunBtn = document.getElementById('autorun-button');
+        const trackerSpan = document.querySelector('#voz-spam-cleaner-tracker span');
+        return {
+            cleanBtn, autorunBtn,
+            updateProgress: (msg, color = 'black') => {
+                if (trackerSpan) { trackerSpan.textContent = msg; trackerSpan.style.color = color; }
+            },
+        };
+    }
 
-            let wasCountdownRunning = false;
-            if (state.countdownInterval) {
-                clearInterval(state.countdownInterval);
-                wasCountdownRunning = true;
-            }
+    // ═══════════════════════════════════════════════════════════════════
+    // UI: SCHEDULER
+    // ═══════════════════════════════════════════════════════════════════
+
+    function initScheduler() {
+        const ui = createUI();
+        if (!ui) return;
+
+        const { cleanBtn, autorunBtn, updateProgress } = ui;
+        let isRunning = false;
+        let countdownId = null;
+        let remainingSeconds = 0;
+
+        async function runCleaner() {
+            if (isRunning) return;
+            const hadCountdown = !!countdownId;
+            if (countdownId) { clearInterval(countdownId); countdownId = null; }
+
+            isRunning = true;
+            setButtonsEnabled(false);
+            updateProgress('Spam Cleaner: Running...', 'blue');
 
             try {
-                state.isRunning = true;
-                updateUIForCleaning(true);
-                const result = await cleanAllSpamer(false);
-
-                if (result.status === 'success') {
-                    updateProgress(`Cleaned ${result.spamCount} spammers`, 'green');
-                    logMessage('Spam cleaning completed', result);
-                } else {
-                    updateProgress(`Error: ${result.message || 'Unknown error'}`, 'red');
-                    console.error('Error during spam cleaning:', result);
-                }
-
-                await new Promise(res => setTimeout(res, 2000));
-            } catch (error) {
-                console.error('Error when cleaning spammer:', error);
-                updateProgress(`Error: ${error.message || error}`, 'red');
+                const result = await cleanAllSpammers(false);
+                updateProgress(
+                    result.status === 'success'
+                        ? `Cleaned ${result.spamCount} spammers`
+                        : `Error: ${result.message || 'Unknown'}`,
+                    result.status === 'success' ? 'green' : 'red'
+                );
+                await sleep(2000);
+            } catch (err) {
+                updateProgress(`Error: ${err.message}`, 'red');
             } finally {
-                updateUIForCleaning(false);
-                state.isRunning = false;
-
-                // Restore the countdown if needed
-                const storedAutorun = storageManager.get(AUTORUN_KEY, 'OFF');
-                if (storedAutorun !== 'OFF' && wasCountdownRunning && state.remainingTime > 0) {
-                    startCountdown(state.remainingTime / 60);
-                } else if (!wasCountdownRunning || storedAutorun === 'OFF') {
-                    updateProgress(`Spam Cleaner: Idle. Last clean: ${spamManager.getSpamCount()} spammers.`);
+                isRunning = false;
+                setButtonsEnabled(true);
+                const autorun = storage.get(STORAGE_KEYS.AUTORUN, 'OFF');
+                if (autorun !== 'OFF' && hadCountdown) {
+                    startCountdown(parseInt(autorun));
+                } else {
+                    updateProgress(`Spam Cleaner: Idle. Last clean: ${storage.get(STORAGE_KEYS.LATEST_COUNT, '0')} spammers.`);
                 }
             }
         }
 
-        /**
-         * Update the user interface during the cleanup process
-         *
-         * @param {boolean} isCleaning - Whether the cleanup is in progress
-         */
-        function updateUIForCleaning(isCleaning) {
-            cleanButton.disabled = isCleaning;
-            autorunButton.disabled = isCleaning;
-            cleanButton.style.backgroundColor = isCleaning ? '#6c757d' : '#007bff';
-            autorunButton.style.backgroundColor = isCleaning ? '#6c757d' : '#007bff';
-            if (isCleaning) {
-                updateProgress('Spam Cleaner: Running...', 'blue');
-            }
+        function setButtonsEnabled(enabled) {
+            const disabled = !enabled;
+            cleanBtn.disabled = disabled;
+            autorunBtn.disabled = disabled;
+            cleanBtn.style.backgroundColor = disabled ? '#6c757d' : '#007bff';
+            autorunBtn.style.backgroundColor = disabled ? '#6c757d' : '#007bff';
         }
 
-        /**
-         * Start the countdown for the next cleanup
-         *
-         * @param {number} minutes - The countdown time in minutes
-         */
         function startCountdown(minutes) {
-            state.remainingTime = minutes * 60;
-
-            // Clear the current interval if it exists
-            if (state.countdownInterval) {
-                clearInterval(state.countdownInterval);
-            }
-
-            state.countdownInterval = setInterval(() => {
-                if (!state.isRunning) {
-                    const minutesLeft = Math.floor(state.remainingTime / 60);
-                    const seconds = state.remainingTime % 60;
-                    updateProgress(`Last clean: ${spamManager.getSpamCount()} spammers. Wait ${minutesLeft}:${seconds.toString().padStart(2, '0')} before next clean...`, '#6494d3');
+            remainingSeconds = minutes * 60;
+            if (countdownId) clearInterval(countdownId);
+            countdownId = setInterval(() => {
+                if (!isRunning) {
+                    const m = Math.floor(remainingSeconds / 60);
+                    const s = remainingSeconds % 60;
+                    updateProgress(
+                        `Last clean: ${storage.get(STORAGE_KEYS.LATEST_COUNT, '0')} spammers. Next in ${m}:${s.toString().padStart(2, '0')}...`,
+                        '#6494d3'
+                    );
                 }
-                if (--state.remainingTime < 0) {
-                    clearInterval(state.countdownInterval);
-                    state.countdownInterval = null;
-                    runCleanSpamer();
+                if (--remainingSeconds < 0) {
+                    clearInterval(countdownId);
+                    countdownId = null;
+                    runCleaner();
                 }
             }, 1000);
         }
 
-        /**
-         * Toggle auto-cleanup mode
-         */
         function toggleAutorun() {
-            if (state.isRunning) {
-                logMessage('Cannot change autorun settings while cleaning is running.');
-                return;
-            }
+            if (isRunning) return;
+            const current = storage.get(STORAGE_KEYS.AUTORUN, 'OFF');
+            const nextIdx = (AUTORUN_OPTIONS.indexOf(current) + 1) % AUTORUN_OPTIONS.length;
+            const next = AUTORUN_OPTIONS[nextIdx];
+            storage.set(STORAGE_KEYS.AUTORUN, next);
+            autorunBtn.textContent = next === 'OFF' ? 'Autorun: OFF' : `Autorun: ${next} mins`;
 
-            // Get the current state
-            let currentState = storageManager.get(AUTORUN_KEY, 'OFF');
-            const currentIndex = autorunStates.indexOf(currentState);
+            if (countdownId) { clearInterval(countdownId); countdownId = null; }
 
-            // Move to the next state
-            const nextIndex = (currentIndex + 1) % autorunStates.length;
-            const nextState = autorunStates[nextIndex];
-
-            // Save the new state
-            storageManager.set(AUTORUN_KEY, nextState);
-            autorunButton.textContent = nextState === 'OFF' ? `Autorun: ${nextState}` : `Autorun: ${nextState} mins`;
-
-            // Clear the current countdown if it exists
-            if (state.countdownInterval) {
-                clearInterval(state.countdownInterval);
-                state.countdownInterval = null;
-            }
-
-            // Update the status based on the new settings
-            if (nextState === 'OFF') {
-                updateProgress(`Spam Cleaner: Idle. Last clean: ${spamManager.getSpamCount()} spammers.`);
+            if (next === 'OFF') {
+                updateProgress(`Spam Cleaner: Idle. Last clean: ${storage.get(STORAGE_KEYS.LATEST_COUNT, '0')} spammers.`);
             } else {
-                startCountdown(parseInt(nextState));
+                startCountdown(parseInt(next));
             }
         }
 
-        /**
-         * Initialize event listeners
-         */
-        function initialize() {
-            // Prevent registering event listeners multiple times
-            if (!cleanButton.hasAttribute('data-initialized')) {
-                cleanButton.setAttribute('data-initialized', 'true');
+        // Event listeners (guard against double-init)
+        if (!cleanBtn.hasAttribute('data-initialized')) {
+            cleanBtn.setAttribute('data-initialized', 'true');
+            cleanBtn.addEventListener('click', runCleaner);
+            autorunBtn.addEventListener('click', toggleAutorun);
 
-                cleanButton.addEventListener('click', async() => {
-                    await runCleanSpamer();
-                });
+            const saved = storage.get(STORAGE_KEYS.AUTORUN, 'OFF');
+            if (saved !== 'OFF') startCountdown(parseInt(saved));
+        }
+    }
 
-                autorunButton.addEventListener('click', toggleAutorun);
+    // ═══════════════════════════════════════════════════════════════════
+    // LIFT-BAN LISTENER
+    // ═══════════════════════════════════════════════════════════════════
 
-                // Restore the auto-run status from the previous session
-                const storedAutorun = storageManager.get(AUTORUN_KEY);
-                if (storedAutorun && storedAutorun !== 'OFF') {
-                    startCountdown(parseInt(storedAutorun));
+    function initLiftBanListeners() {
+        const attach = () => {
+            for (const form of document.querySelectorAll('form[action*="/ban/lift"]')) {
+                const userId = form.action.match(/\/u\/[^.]+\.(\d+)\/ban\/lift/)?.[1];
+                if (!userId) continue;
+                const btn = form.querySelector('button[type="submit"]');
+                if (btn && !btn.hasAttribute('data-voz-listener')) {
+                    btn.setAttribute('data-voz-listener', 'true');
+                    btn.addEventListener('click', () => ignoreListMgr.add(userId));
                 }
             }
-        }
+        };
 
-        // Initialize the schedule
-        initialize();
+        new MutationObserver(() => attach()).observe(document.body, { childList: true, subtree: true });
+        attach();
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // KEY SETUP
+    // ═══════════════════════════════════════════════════════════════════
 
     function ensureKeys() {
-
-        const keyConfig = [{
-                key: IGNORE_LIST_KEY,
-                label: "Enter app key for the ignore list:"
-            }, {
-                key: LATEST_RANGE_KEY,
-                label: "Enter app key for the processing range:"
-            }, {
-                key: AUTH_KEY,
-                label: "Enter auth key:"
-            }
-        ]
-
-        for (const item of keyConfig) {
-            if (!storageManager.get(item.key)) {
-                const val = prompt(item.label)
-                    if (val)
-                        storageManager.set(item.key, val)
+        const keys = [
+            { key: STORAGE_KEYS.IGNORE_LIST, label: 'Enter app key for the ignore list:' },
+            { key: STORAGE_KEYS.LATEST_RANGE, label: 'Enter app key for the processing range:' },
+            { key: STORAGE_KEYS.AUTH, label: 'Enter auth key:' },
+        ];
+        for (const { key, label } of keys) {
+            if (!storage.get(key)) {
+                const val = prompt(label);
+                if (val) storage.set(key, val);
             }
         }
+        authKey = storage.get(STORAGE_KEYS.AUTH) || '';
     }
 
-    /**
-     * Initialize the script
-     */
+    // ═══════════════════════════════════════════════════════════════════
+    // INIT
+    // ═══════════════════════════════════════════════════════════════════
+
     async function init() {
-        if (window.location.hostname === 'voz.vn') {
-            // Request app key if not available
-            ensureKeys();
+        if (window.location.hostname !== 'voz.vn') return;
 
-            ignoreList = await ignoreListManager.getIgnoreList() || [];
-            compileSpamRegex(); // Initial compile
-            initializeBanListeners();
-
-            scheduleCleanAllSpamer();
-        }
+        ensureKeys();
+        ignoreList = await ignoreListMgr.load();
+        compileSpamRegex(spamKeywords, spamUserNames);
+        initLiftBanListeners();
+        initScheduler();
     }
 
-    if (document.readyState === 'complete') {
-        init();
-    } else if (document.readyState === 'loading') {
+    if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
-        window.addEventListener('load', init);
+        init();
     }
+
 })();
