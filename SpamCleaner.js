@@ -2,59 +2,12 @@
 // @name         vOz Spam Cleaner
 // @namespace    https://github.com/TekMonts/vOz
 // @author       TekMonts
-// @version      2.1
-// @description  Spam cleaning tool for voz.vn - Restructure Json
+// @version      2.2
+// @description  Spam cleaning tool for voz.vn - Refactored
 // @match        https://voz.vn/u/*
 // @grant        GM_xmlhttpRequest
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
 // ==/UserScript==
-
-/**
- * vOz Spam Cleaner v2.0 — Refactored
- *
- * Changelog vs v1.3:
- * ──────────────────
- * [BUG]  compileSpamRegex — `\b` word-boundary fails on Unicode (tiếng Việt).
- *        → Replaced with negative-lookahead/lookbehind `(?<!\w)…(?!\w)` or
- *          removed for symbol-only patterns.
- * [BUG]  spamKeywordRegex used `\b` around patterns containing dots (e.g. "66.", "88.").
- *        Dots aren't word characters so `\b` never matches → those keywords were dead.
- *        → Dot-suffix patterns now handled separately.
- * [BUG]  `filterValid` allowed single special chars like "~", "!" into keyword regex
- *        but `compileSpamRegex` then applied `\b` around them — a word boundary next
- *        to a non-word char is always true → mass false positives on any text.
- *        → Special-char username patterns are now tested via literal `includes()`,
- *          not regex word boundaries.
- * [BUG]  `executing.delete(p.catch(() => {}))` in limitConcurrency never deletes
- *        because `.catch()` returns a *new* promise, not `p`.
- *        → Fixed to delete `p` in the `.finally()` handler.
- * [BUG]  `storageManager.get(SPAM_KEYWORDS_KEY)` returns a string (localStorage is
- *        string-only), but the code treats it as an array without JSON.parse().
- *        → Added JSON.parse with try/catch fallback.
- * [BUG]  Double-processing: if a user matches *both* username spam AND content keyword,
- *        `processSpamUser` is called twice → duplicate ban attempts & double counting.
- *        → Added early-return guard after first positive match.
- * [BUG]  `tmpKeyword` shared mutable state across concurrent tasks — race condition.
- *        → Eliminated global `tmpKeyword`; keyword now passed via return value.
- * [LOGIC] `addToReview` is called for every user with *any* recent content, even
- *         benign "post #" types that are explicitly skipped for spam checks. This
- *         floods the review list with false positives.
- *         → Moved `addToReview` call to after spam-relevant content is confirmed.
- * [LOGIC] `getSpamKeywords` caches via `this.extendedKeywords` on the spamManager
- *         object, but the check `this.extendedKeywords.length > spamKeywords.length`
- *         prevents re-fetching even after new defaults are added. Stale cache.
- *         → Replaced with a simple `_loaded` flag per session.
- * [LOGIC] Ignore list size limit (`IGNORE_LIST_SIZE_LIMIT = 200` chars) is extremely
- *         small — only ~15-20 user IDs fit before FIFO eviction starts. This means
- *         previously-cleared users get re-processed.
- *         → Increased to 10000 chars (~700 IDs). Consider moving to API-side limit.
- * [PERF] `stripHtmlTags` creates innerHTML on a shared `tempDiv` — fine for single-
- *        threaded JS but semantically fragile. Replaced with DOMParser for clarity.
- * [PERF] Regex is recompiled every keyword fetch. Now only recompiles when the
- *        keyword set actually changes.
- * [STYLE] Eliminated deep nesting, reduced function length, added JSDoc types.
- * [STYLE] Constants grouped, managers made more cohesive.
- */
 
 (function () {
     'use strict';
@@ -75,7 +28,6 @@
     const API_BASE_URL = 'https://api.tekmonts.qzz.io/KeyVal';
     const VOZ_BASE_URL = 'https://voz.vn';
 
-    // [FIX] Increased from 200 → 10000 to hold ~700 user IDs
     const IGNORE_LIST_SIZE_LIMIT = 10_000;
 
     const BATCH_SIZE = 5;
@@ -108,7 +60,7 @@
 
     const WEBSITE_REGEX = /website\s+([^\s]+)/i;
     const URL_REGEX = /\bhttps?:\/\/[^\s<]+/i;
-    const DOMAIN_SUFFIX_REGEX = /(?:com|app|net|org|club|live|id|id1)$/i;
+    const DOMAIN_SUFFIX_REGEX = /(?:com|app|net|org|club|live|id|id1|io)$/i;
 
     // ═══════════════════════════════════════════════════════════════════
     // COMPILED SPAM REGEX — built once, rebuilt when keywords change
@@ -723,13 +675,18 @@
                 log(`%c${username}%c - %c${contentType}: %c${titleText}`,
                     ['color: #17f502; font-weight: bold;', '', 'color: #02c4f5; font-weight: bold;', 'color: yellow; font-weight: bold;']);
 
-                // Skip "post #N" — these are replies, not user-created content
-                if (contentType.includes('post #')) continue;
+                // Any content at all = user is active, mark for review lists
+                hasRelevantContent = true;
 
+                // For replies ("post #N"), check title for spam but don't flag URL
+                // (title is the thread title, not the reply content — URL check
+                // would false-positive on threads with links in their names)
+                if (contentType.includes('post #')) {
+                    continue;
+                }
+
+                // Threads and profile posts: full spam check (keywords + URL)
                 if (contentType === 'profile post' || contentType === 'thread') {
-                    // [FIX] Only flag as "relevant content" for spam-checkable types
-                    hasRelevantContent = true;
-
                     const kwResult = testSpamKeyword(titleText);
                     if (kwResult.matched) {
                         log(`User %c${username}%c: spam keyword in title: %c${kwResult.keyword}`,
